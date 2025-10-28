@@ -1,0 +1,127 @@
+// server/prisma/schema.prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// MODELOS PRINCIPALES - Versión compatible con SQLite
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  password      String
+  name          String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  // RELACIONES
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  documents      Document[]
+  subscriptions  BillingSubscription[]
+
+  @@map("users")
+  @@index([email])
+  @@index([organizationId])
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // RELACIONES
+  users      User[]
+  documents  Document[]
+  templates  ExtractionTemplate[]
+
+  @@map("organizations")
+}
+
+model Document {
+  id          String   @id @default(cuid())
+  filename    String
+  fileUrl     String
+  fileSize    Int
+  fileType    String
+  documentType String   // En lugar de Enum: "INVOICE", "RECEIPT", "CONTRACT", "OTHER"
+  status      String   @default("PENDING") // En lugar de Enum: "PENDING", "PROCESSING", "COMPLETED", "FAILED"
+  uploadedAt  DateTime @default(now())
+  processedAt DateTime?
+
+  // RELACIONES
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  userId      String
+  user        User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  processing  DocumentProcessing?
+
+  @@map("documents")
+  @@index([organizationId])
+  @@index([userId])
+  @@index([status])
+  @@index([uploadedAt])
+}
+
+model DocumentProcessing {
+  id          String   @id @default(cuid())
+  documentId  String   @unique
+  document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  // CAMPOS DE RESULTADO DE IA - Usar String en lugar de Json para SQLite
+  extractedData String? // Almacenar JSON como string
+  confidence   Float? // Confianza promedio de la extracción
+
+  // METADATA DE PROCESAMIENTO
+  startedAt   DateTime?
+  completedAt DateTime?
+  error       String?
+
+  @@map("document_processings")
+  @@index([documentId])
+}
+
+model ExtractionTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  fields      String   // Almacenar JSON schema como string
+  sampleData  String?  // Almacenar datos de ejemplo como string JSON
+
+  // RELACIONES
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("extraction_templates")
+}
+
+model BillingSubscription {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  plan        String   @default("FREE") // En lugar de Enum: "FREE", "PRO", "BUSINESS"
+  stripeSubscriptionId String? @unique
+  stripeCustomerId    String? @unique
+  currentPeriodStart  DateTime?
+  currentPeriodEnd    DateTime?
+  cancelAtPeriodEnd   Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("billing_subscriptions")
+  @@index([userId])
+  @@index([stripeSubscriptionId])
+  @@index([stripeCustomerId])
+}
