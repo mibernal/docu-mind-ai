@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { DocumentsTable } from "@/components/documents/DocumentsTable";
-import { Document, DocumentType, DocumentStatus } from "@/types";
+import { Document } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -11,84 +11,75 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Search, Upload } from "lucide-react";
+import { Search, Upload, RefreshCw } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-
-// Mock data
-const mockDocuments: Document[] = [
-  {
-    id: "1",
-    filename: "Invoice_2024_001.pdf",
-    type: "invoice",
-    status: "completed",
-    uploadedAt: "2024-01-15T10:30:00Z",
-    processedAt: "2024-01-15T10:32:15Z",
-  },
-  {
-    id: "2",
-    filename: "Receipt_Store_A.jpg",
-    type: "receipt",
-    status: "completed",
-    uploadedAt: "2024-01-15T09:15:00Z",
-  },
-  {
-    id: "3",
-    filename: "Contract_Draft.pdf",
-    type: "contract",
-    status: "processing",
-    uploadedAt: "2024-01-15T08:45:00Z",
-  },
-  {
-    id: "4",
-    filename: "Invoice_2024_002.pdf",
-    type: "invoice",
-    status: "completed",
-    uploadedAt: "2024-01-14T16:20:00Z",
-  },
-  {
-    id: "5",
-    filename: "Receipt_Hotel.png",
-    type: "receipt",
-    status: "failed",
-    uploadedAt: "2024-01-14T15:10:00Z",
-  },
-  {
-    id: "6",
-    filename: "Contract_Agreement.pdf",
-    type: "contract",
-    status: "completed",
-    uploadedAt: "2024-01-14T14:00:00Z",
-  },
-  {
-    id: "7",
-    filename: "Invoice_2024_003.pdf",
-    type: "invoice",
-    status: "completed",
-    uploadedAt: "2024-01-14T11:30:00Z",
-  },
-  {
-    id: "8",
-    filename: "Document_Scan.tiff",
-    type: "other",
-    status: "processing",
-    uploadedAt: "2024-01-14T10:15:00Z",
-  },
-];
+import { apiClient } from "@/lib/api";
+import { toast } from "sonner";
 
 export default function Documents() {
   const navigate = useNavigate();
+  const [documents, setDocuments] = useState<Document[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [isLoading, setIsLoading] = useState(true);
+  const [pagination, setPagination] = useState({
+    page: 1,
+    limit: 10,
+    total: 0,
+    totalPages: 0,
+  });
 
-  const filteredDocuments = mockDocuments.filter((doc) => {
+  const fetchDocuments = async (page: number = 1) => {
+    try {
+      setIsLoading(true);
+      const params: any = { 
+        page, 
+        limit: pagination.limit 
+      };
+      
+      if (typeFilter !== "all") params.type = typeFilter;
+      if (statusFilter !== "all") params.status = statusFilter;
+      if (searchQuery) params.search = searchQuery;
+
+      const data = await apiClient.getDocuments(params);
+      setDocuments(data.documents);
+      setPagination({
+        page: data.page,
+        limit: data.limit,
+        total: data.total,
+        totalPages: data.totalPages,
+      });
+    } catch (error) {
+      console.error("Failed to fetch documents:", error);
+      toast.error("Failed to load documents");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchDocuments(1);
+  }, [typeFilter, statusFilter]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    fetchDocuments(1);
+  };
+
+  const handleRefresh = () => {
+    fetchDocuments(pagination.page);
+  };
+
+  const handlePageChange = (newPage: number) => {
+    fetchDocuments(newPage);
+  };
+
+  const filteredDocuments = documents.filter((doc) => {
     const matchesSearch = doc.filename
       .toLowerCase()
       .includes(searchQuery.toLowerCase());
-    const matchesType = typeFilter === "all" || doc.type === typeFilter;
-    const matchesStatus = statusFilter === "all" || doc.status === statusFilter;
-
-    return matchesSearch && matchesType && matchesStatus;
+    return matchesSearch;
   });
 
   return (
@@ -101,13 +92,19 @@ export default function Documents() {
               Manage and track all your processed documents
             </p>
           </div>
-          <Button onClick={() => navigate("/documents/upload")}>
-            <Upload className="mr-2 h-4 w-4" />
-            Upload Document
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={handleRefresh} disabled={isLoading}>
+              <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              Refresh
+            </Button>
+            <Button onClick={() => navigate("/documents/upload")}>
+              <Upload className="mr-2 h-4 w-4" />
+              Upload Document
+            </Button>
+          </div>
         </div>
 
-        <div className="flex flex-col gap-4 md:flex-row md:items-center">
+        <form onSubmit={handleSearch} className="flex flex-col gap-4 md:flex-row md:items-center">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -143,20 +140,40 @@ export default function Documents() {
                 <SelectItem value="failed">Failed</SelectItem>
               </SelectContent>
             </Select>
-          </div>
-        </div>
 
-        <DocumentsTable documents={filteredDocuments} />
+            <Button type="submit" variant="secondary">
+              Search
+            </Button>
+          </div>
+        </form>
+
+<DocumentsTable 
+  documents={filteredDocuments} 
+  isLoading={isLoading}
+/>
 
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <p>
-            Showing {filteredDocuments.length} of {mockDocuments.length} documents
+            Showing {filteredDocuments.length} of {pagination.total} documents
           </p>
           <div className="flex gap-2">
-            <Button variant="outline" size="sm" disabled>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(pagination.page - 1)}
+              disabled={pagination.page <= 1 || isLoading}
+            >
               Previous
             </Button>
-            <Button variant="outline" size="sm" disabled>
+            <span className="flex items-center px-3">
+              Page {pagination.page} of {pagination.totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handlePageChange(pagination.page + 1)}
+              disabled={pagination.page >= pagination.totalPages || isLoading}
+            >
               Next
             </Button>
           </div>

@@ -6,20 +6,28 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { FileText } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
 
 export default function Login() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Mock login - in production, this would call an API
-    if (email && password) {
+    setIsLoading(true);
+
+    try {
+      await login(email, password);
       toast.success("Login successful!");
       navigate("/dashboard");
-    } else {
-      toast.error("Please enter email and password");
+    } catch (error) {
+      console.error('Login error:', error);
+      toast.error("Invalid email or password");
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -56,6 +64,7 @@ export default function Login() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  disabled={isLoading}
                 />
               </div>
               <div className="space-y-2">
@@ -71,10 +80,11 @@ export default function Login() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  disabled={isLoading}
                 />
               </div>
-              <Button type="submit" className="w-full">
-                Sign In
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? "Signing in..." : "Sign In"}
               </Button>
             </form>
 
@@ -84,6 +94,7 @@ export default function Login() {
                 variant="link"
                 className="p-0 h-auto"
                 onClick={() => navigate("/register")}
+                disabled={isLoading}
               >
                 Sign up
               </Button>

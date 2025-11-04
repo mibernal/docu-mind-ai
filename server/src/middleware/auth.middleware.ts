@@ -1,11 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
-import { verifyToken } from '../utils/jwt';
+import { verifyToken, TokenPayload } from '../utils/jwt'; // ← Importar TokenPayload
 
 export interface AuthRequest extends Request {
-  user?: {
-    userId: string;
-    email: string;
-  };
+  user?: TokenPayload; // ← Usar TokenPayload directamente
 }
 
 export const authMiddleware = (

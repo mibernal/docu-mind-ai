@@ -3,19 +3,11 @@ import cors from 'cors';
 import helmet from 'helmet';
 import authRoutes from './routes/auth.routes';
 import userRoutes from './routes/user.routes';
+import documentRoutes from './routes/document.routes'; // ← NUEVA IMPORTACIÓN
 import { apiLimiter, authLimiter } from './middleware/rateLimit.middleware';
-import { testConnection } from './lib/db'; // ← Nueva importación
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-
-// Verificar conexión a la base de datos al iniciar
-testConnection().then(success => {
-  if (!success) {
-    console.error('No se pudo conectar a la base de datos. Saliendo...');
-    process.exit(1);
-  }
-});
 
 // Middleware de seguridad
 app.use(helmet());
@@ -23,7 +15,7 @@ app.use(cors({
   origin: process.env.CLIENT_URL || 'http://localhost:5173',
   credentials: true
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' })); // Aumentar límite para archivos
 
 // Rate limiting
 app.use('/api/', apiLimiter);
@@ -32,25 +24,11 @@ app.use('/api/auth', authLimiter);
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/documents', documentRoutes); // ← NUEVA RUTA
 
-// Health check mejorado
-app.get('/api/health', async (req, res) => {
-  try {
-    // Verificar conexión a la base de datos
-    await testConnection();
-    res.json({ 
-      status: 'OK', 
-      database: 'connected',
-      timestamp: new Date().toISOString() 
-    });
-  } catch (error) {
-    res.status(500).json({ 
-      status: 'ERROR', 
-      database: 'disconnected',
-      error: 'Database connection failed',
-      timestamp: new Date().toISOString() 
-    });
-  }
+// Health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
 // Manejo de errores global
@@ -61,5 +39,5 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
-  console.log(`📊 Health check available at http://localhost:${PORT}/api/health`);
+  console.log(`📊 Health check: http://localhost:${PORT}/api/health`);
 });

@@ -1,0 +1,29 @@
+server
+├── .env
+├── estructura.txt
+├── package.json
+├── prisma
+│   ├── dev.db
+│   ├── schema.prisma
+│   └── seed.ts
+├── src
+│   ├── controllers
+│   │   ├── auth.controller.ts
+│   │   └── user.controller.ts
+│   ├── index.ts
+│   ├── lib
+│   │   └── db.ts
+│   ├── middleware
+│   │   ├── auth.middleware.ts
+│   │   ├── rateLimit.middleware.ts
+│   │   └── validation.middleware.ts
+│   ├── routes
+│   │   ├── auth.routes.ts
+│   │   └── user.routes.ts
+│   └── utils
+│       ├── json.ts
+│       ├── jwt.ts
+│       ├── password.ts
+│       └── validation.ts
+├── tree.cjs
+└── tsconfig.json

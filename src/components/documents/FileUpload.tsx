@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { apiClient } from "@/lib/api";
 
 interface UploadedFile {
   id: string;
@@ -12,6 +13,7 @@ interface UploadedFile {
   progress: number;
   status: "pending" | "uploading" | "success" | "error";
   error?: string;
+  documentId?: string;
 }
 
 export function FileUpload() {
@@ -91,42 +93,69 @@ export function FileUpload() {
     setFiles((prev) => prev.filter((f) => f.id !== id));
   };
 
-  const uploadFiles = () => {
-    files.forEach((file) => {
-      if (file.status === "pending") {
-        setFiles((prev) =>
-          prev.map((f) =>
-            f.id === file.id ? { ...f, status: "uploading" } : f
-          )
-        );
+  const uploadFile = async (fileData: UploadedFile) => {
+    setFiles((prev) =>
+      prev.map((f) =>
+        f.id === fileData.id ? { ...f, status: "uploading", progress: 10 } : f
+      )
+    );
 
-        // Simulate upload progress
-        const interval = setInterval(() => {
-          setFiles((prev) =>
-            prev.map((f) => {
-              if (f.id === file.id && f.progress < 100) {
-                const newProgress = f.progress + 10;
-                if (newProgress >= 100) {
-                  clearInterval(interval);
-                  setTimeout(() => {
-                    setFiles((p) =>
-                      p.map((pf) =>
-                        pf.id === file.id
-                          ? { ...pf, status: "success", progress: 100 }
-                          : pf
-                      )
-                    );
-                    toast.success(`${file.file.name} uploaded successfully`);
-                  }, 500);
-                }
-                return { ...f, progress: newProgress };
-              }
-              return f;
-            })
-          );
-        }, 200);
-      }
-    });
+    try {
+      const formData = new FormData();
+      formData.append("document", fileData.file);
+
+      // Simular progreso inicial
+      const progressInterval = setInterval(() => {
+        setFiles((prev) =>
+          prev.map((f) => {
+            if (f.id === fileData.id && f.progress < 80) {
+              return { ...f, progress: Math.min(f.progress + 10, 80) };
+            }
+            return f;
+          })
+        );
+      }, 300);
+
+      // Subida real
+      const result = await apiClient.uploadDocument(formData);
+      
+      clearInterval(progressInterval);
+
+      // Completar progreso
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === fileData.id
+            ? { ...f, status: "success", progress: 100, documentId: result.documentId }
+            : f
+        )
+      );
+
+      toast.success(`${fileData.file.name} uploaded successfully! Processing started.`);
+    } catch (error) {
+      setFiles((prev) =>
+        prev.map((f) =>
+          f.id === fileData.id
+            ? { ...f, status: "error", error: "Upload failed", progress: 0 }
+            : f
+        )
+      );
+      toast.error(`Failed to upload ${fileData.file.name}`);
+    }
+  };
+
+  const uploadAll = async () => {
+    const filesToUpload = files.filter(f => f.status === "pending");
+    
+    for (const file of filesToUpload) {
+      await uploadFile(file);
+    }
+  };
+
+  const retryUpload = (id: string) => {
+    const file = files.find(f => f.id === id);
+    if (file) {
+      uploadFile(file);
+    }
   };
 
   const hasFilesToUpload = files.some((f) => f.status === "pending");
@@ -174,7 +203,7 @@ export function FileUpload() {
             <div className="flex items-center justify-between">
               <h4 className="font-semibold">Files ({files.length}/5)</h4>
               {hasFilesToUpload && (
-                <Button onClick={uploadFiles} size="sm">
+                <Button onClick={uploadAll} size="sm">
                   Upload All
                 </Button>
               )}
@@ -194,8 +223,11 @@ export function FileUpload() {
                     <p className="text-xs text-muted-foreground">
                       {(file.file.size / 1024 / 1024).toFixed(2)} MB
                     </p>
-                    {file.status === "uploading" && (
+                    {(file.status === "uploading" || file.status === "success") && (
                       <Progress value={file.progress} className="mt-2" />
+                    )}
+                    {file.error && (
+                      <p className="text-xs text-destructive mt-1">{file.error}</p>
                     )}
                   </div>
                   <div className="flex items-center gap-2">
@@ -205,13 +237,24 @@ export function FileUpload() {
                     {file.status === "error" && (
                       <AlertCircle className="h-5 w-5 text-destructive" />
                     )}
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => removeFile(file.id)}
-                    >
-                      <X className="h-4 w-4" />
-                    </Button>
+                    {file.status === "error" ? (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => retryUpload(file.id)}
+                      >
+                        Retry
+                      </Button>
+                    ) : (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeFile(file.id)}
+                        disabled={file.status === "uploading"}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 </div>
               ))}

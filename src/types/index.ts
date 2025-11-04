@@ -4,6 +4,10 @@ export interface User {
   name: string;
   plan: 'free' | 'pro' | 'business';
   createdAt: string;
+  organization?: {
+    id: string;
+    name: string;
+  };
 }
 
 export type DocumentType = 'invoice' | 'receipt' | 'contract' | 'other';

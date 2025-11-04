@@ -49,6 +49,7 @@ export const register = async (req: Request, res: Response) => {
     const token = generateToken({
       userId: user.id,
       email: user.email,
+      organizationId: organization.id,
     });
 
     res.status(201).json({
@@ -92,6 +93,7 @@ export const login = async (req: Request, res: Response) => {
     const token = generateToken({
       userId: user.id,
       email: user.email,
+      organizationId: user.organization.id,
     });
 
     res.json({
