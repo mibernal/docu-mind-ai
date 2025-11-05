@@ -9,6 +9,8 @@ server
 ├── src
 │   ├── controllers
 │   │   ├── auth.controller.ts
+│   │   ├── document.controller.ts
+│   │   ├── template.controller.ts
 │   │   └── user.controller.ts
 │   ├── index.ts
 │   ├── lib
@@ -16,14 +18,20 @@ server
 │   ├── middleware
 │   │   ├── auth.middleware.ts
 │   │   ├── rateLimit.middleware.ts
+│   │   ├── upload.middleware.ts
 │   │   └── validation.middleware.ts
 │   ├── routes
 │   │   ├── auth.routes.ts
+│   │   ├── document.routes.ts
+│   │   ├── template.routes.ts
 │   │   └── user.routes.ts
+│   ├── services
+│   │   └── aiProcessor.ts
 │   └── utils
 │       ├── json.ts
 │       ├── jwt.ts
 │       ├── password.ts
 │       └── validation.ts
 ├── tree.cjs
-└── tsconfig.json
+├── tsconfig.json
+└── uploads

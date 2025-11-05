@@ -1,5 +1,4 @@
-import { Toaster } from "@/components/ui/toaster";
-import { Toaster as Sonner } from "@/components/ui/sonner";
+import { Toaster } from "@/components/ui/sonner"; // Cambiado a solo importar desde sonner
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
@@ -15,7 +14,14 @@ import Templates from "./pages/Templates";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 // Componente para rutas protegidas
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
@@ -36,17 +42,58 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+// Componente para rutas públicas (redirige al dashboard si ya está autenticado)
+const PublicRoute = ({ children }: { children: React.ReactNode }) => {
+  const { user, isLoading } = useAuth();
+  
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+  
+  if (user) {
+    return <Navigate to="/dashboard" replace />;
+  }
+  
+  return <>{children}</>;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
-      <Toaster />
-      <Sonner />
       <BrowserRouter>
         <AuthProvider>
           <Routes>
-            <Route path="/" element={<Index />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
+            {/* Rutas públicas con redirección si está autenticado */}
+            <Route 
+              path="/" 
+              element={
+                <PublicRoute>
+                  <Index />
+                </PublicRoute>
+              } 
+            />
+            <Route 
+              path="/login" 
+              element={
+                <PublicRoute>
+                  <Login />
+                </PublicRoute>
+              } 
+            />
+            <Route 
+              path="/register" 
+              element={
+                <PublicRoute>
+                  <Register />
+                </PublicRoute>
+              } 
+            />
+            
+            {/* Rutas protegidas */}
             <Route 
               path="/dashboard" 
               element={
@@ -95,9 +142,19 @@ const App = () => (
                 </ProtectedRoute>
               } 
             />
-            {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+            
+            {/* Ruta comodín para 404 */}
             <Route path="*" element={<NotFound />} />
           </Routes>
+          
+          {/* Toaster/Sonner debe estar fuera de Routes pero dentro del Router */}
+          <Toaster 
+            position="top-right"
+            duration={4000}
+            expand={true}
+            closeButton
+            richColors
+          />
         </AuthProvider>
       </BrowserRouter>
     </TooltipProvider>

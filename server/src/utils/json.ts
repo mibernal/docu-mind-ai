@@ -10,13 +10,13 @@ export const stringToJson = <T>(jsonString: string | null): T | null => {
   }
 };
 
-export const jsonToString = (data: any): string | null => {
-  if (!data) return null;
+export const jsonToString = (data: any): string => {
+  if (!data) return '{}';
   try {
     return JSON.stringify(data);
   } catch (error) {
     console.error('Error stringifying JSON:', error);
-    return null;
+    return '{}';
   }
 };
 

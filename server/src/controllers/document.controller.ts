@@ -2,6 +2,9 @@ import { Response } from 'express';
 import { prisma } from '../lib/db';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { jsonToString, stringToJson } from '../utils/json';
+import { aiProcessor } from '../services/aiProcessor';
+import fs from 'fs';
+import path from 'path';
 
 export const uploadDocument = async (req: AuthRequest, res: Response) => {
   try {
@@ -9,75 +12,101 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // In a real implementation, this would come from multer
-    const { originalname, mimetype, size, buffer } = req.body;
-    
+    if (!req.file) {
+      return res.status(400).json({ error: 'No file uploaded' });
+    }
+
+    const { originalname, mimetype, size, filename } = req.file;
+    const filePath = path.join(process.env.UPLOAD_PATH || './uploads', filename);
+
+    // Validar que el archivo existe en disco
+    if (!fs.existsSync(filePath)) {
+      return res.status(400).json({ error: 'Uploaded file not found' });
+    }
+
     // Create document in database
     const document = await prisma.document.create({
       data: {
         filename: originalname,
-        fileUrl: `/uploads/${Date.now()}-${originalname}`, // Simulated path
+        fileUrl: `/uploads/${filename}`,
         fileSize: size,
         fileType: mimetype,
-        documentType: 'OTHER', // AI will classify later
+        documentType: 'OTHER',
         status: 'PENDING',
         userId: req.user.userId,
-        organizationId: req.user.organizationId, // ← AHORA SÍ EXISTE
+        organizationId: req.user.organizationId,
       },
     });
 
-    // Simulate async processing
-    setTimeout(async () => {
-      try {
-        // Simulate AI extracted data
-        const extractedData = {
-          invoiceNumber: Math.random().toString(36).substring(2, 10).toUpperCase(),
-          date: new Date().toISOString().split('T')[0],
-          vendor: 'Sample Vendor',
-          amount: (Math.random() * 1000).toFixed(2),
-          currency: 'USD',
-          taxAmount: (Math.random() * 100).toFixed(2),
-          total: (Math.random() * 1100).toFixed(2),
-        };
+    // Leer el archivo desde disco para procesamiento
+    const fileBuffer = fs.readFileSync(filePath);
 
-        await prisma.document.update({
-          where: { id: document.id },
-          data: {
-            status: 'COMPLETED',
-            processedAt: new Date(),
-          },
-        });
-
-        await prisma.documentProcessing.create({
-          data: {
-            documentId: document.id,
-            extractedData: jsonToString(extractedData),
-            confidence: 0.85 + Math.random() * 0.1, // 85-95% confidence
-            startedAt: new Date(),
-            completedAt: new Date(),
-          },
-        });
-
-        console.log(`Document ${document.id} processed successfully`);
-      } catch (error) {
-        console.error('Processing error:', error);
-        await prisma.document.update({
-          where: { id: document.id },
-          data: { status: 'FAILED' },
-        });
-      }
-    }, 3000); // Process after 3 seconds
+    // Async processing with AI
+    processDocumentWithAI(document.id, fileBuffer, mimetype, originalname);
 
     res.status(201).json({
       documentId: document.id,
-      message: 'Document uploaded successfully. Processing started.',
-      status: 'PENDING'
+      message: 'Document uploaded successfully. AI processing started.',
+      status: 'PROCESSING'
     });
   } catch (error) {
     console.error('Upload document error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
+
+// Async processing function
+async function processDocumentWithAI(documentId: string, fileBuffer: Buffer, mimeType: string, filename: string) {
+  try {
+    await prisma.document.update({
+      where: { id: documentId },
+      data: { status: 'PROCESSING' },
+    });
+
+    // Process with AI
+    const result = await aiProcessor.processDocument(fileBuffer, mimeType, filename);
+
+    await prisma.document.update({
+      where: { id: documentId },
+      data: {
+        status: 'COMPLETED',
+        documentType: result.documentType,
+        processedAt: new Date(),
+      },
+    });
+
+    await prisma.documentProcessing.create({
+      data: {
+        documentId: documentId,
+        extractedData: jsonToString(result.extractedData),
+        confidence: result.confidence,
+        startedAt: new Date(),
+        completedAt: new Date(),
+      },
+    });
+
+    console.log(`Document ${documentId} processed successfully with AI`);
+  } catch (error) {
+    console.error('AI processing error:', error);
+    
+    await prisma.document.update({
+      where: { id: documentId },
+      data: { 
+        status: 'FAILED',
+        processedAt: new Date(),
+      },
+    });
+
+    await prisma.documentProcessing.create({
+      data: {
+        documentId: documentId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+        startedAt: new Date(),
+        completedAt: new Date(),
+      },
+    });
+  }
+}
 
 export const getDocuments = async (req: AuthRequest, res: Response) => {
   try {
