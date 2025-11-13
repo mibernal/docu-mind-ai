@@ -1,3 +1,4 @@
+// src/pages/Login.tsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -10,24 +11,37 @@ import { useAuth } from "@/hooks/useAuth";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { login } = useAuth();
+  const { login, isLoading: authLoading } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 🔥 CORRECCIÓN: Usar el loading del auth combinado con el estado local
+  const isLoading = authLoading || isSubmitting;
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
+    
+    // 🔥 CORRECCIÓN: Prevenir múltiples envíos
+    if (isSubmitting) return;
+    
+    setIsSubmitting(true);
 
     try {
       await login(email, password);
       toast.success("Login successful!");
       navigate("/dashboard");
-    } catch (error) {
+    } catch (error: any) {
       console.error('Login error:', error);
-      toast.error("Invalid email or password");
+      
+      // 🔥 CORRECCIÓN: Mensaje de error específico para rate limiting
+      if (error.status === 429) {
+        toast.error("Too many attempts. Please wait 15 minutes before trying again.");
+      } else {
+        toast.error(error.message || "Invalid email or password");
+      }
     } finally {
-      setIsLoading(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -83,7 +97,11 @@ export default function Login() {
                   disabled={isLoading}
                 />
               </div>
-              <Button type="submit" className="w-full" disabled={isLoading}>
+              <Button 
+                type="submit" 
+                className="w-full" 
+                disabled={isLoading}
+              >
                 {isLoading ? "Signing in..." : "Sign In"}
               </Button>
             </form>

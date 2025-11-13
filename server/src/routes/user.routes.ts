@@ -1,3 +1,4 @@
+// server/src/routes/user.routes.ts
 import { Router } from 'express';
 import { 
   getProfile, 
@@ -21,7 +22,8 @@ router.use(authMiddleware);
 
 // Rutas de perfil de usuario
 router.get('/profile', getProfile);
-router.put('/profile', validate(updateProfileSchema), updateProfile);
+// CORRECCIÓN: Usar el esquema correctamente
+router.put('/profile', validate(updateProfileSchema as any), updateProfile);
 
 // Rutas de organización
 router.put('/organization', updateOrganization);

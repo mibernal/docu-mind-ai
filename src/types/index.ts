@@ -10,8 +10,28 @@ export interface User {
   };
 }
 
-export type DocumentType = 'invoice' | 'receipt' | 'contract' | 'other';
-export type DocumentStatus = 'processing' | 'completed' | 'failed';
+// AGREGAR NUEVO TIPO DE DOCUMENTO
+export type DocumentType = 'invoice' | 'receipt' | 'contract' | 'contract_certification' | 'legal' | 'other';
+export type DocumentStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+// AGREGAR INTERFAZ PARA CERTIFICACIONES DE CONTRATOS
+export interface ContractCertificationData {
+  cliente: string;
+  contratista: string;
+  fechaInicio: string;
+  fechaFin: string;
+  objeto: string;
+  numeroContrato: string;
+  valorSinIva: number;
+  valorConIva: number;
+  valorSMMLV: number;
+  valorSMMLVIva: number;
+  duracionMeses: number;
+  actividades: string[];
+  firmante: string;
+  cargoFirmante: string;
+  nitContratista: string;
+}
 
 export interface DashboardMetrics {
   totalDocuments: number;
@@ -53,7 +73,6 @@ export interface ExtractionResult {
 }
 
 // Extender la interfaz Document existente
-// Agregar al archivo existente
 export interface Document {
   id: string;
   filename: string;
@@ -66,6 +85,7 @@ export interface Document {
   fileType?: string;
   fileUrl?: string;
   extractedData?: any;
+  processingEngine?: string; // AGREGAR ESTE CAMPO
 }
 
 export interface DocumentMetrics {

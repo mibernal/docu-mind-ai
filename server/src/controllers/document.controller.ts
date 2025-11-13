@@ -2,9 +2,9 @@ import { Response } from 'express';
 import { prisma } from '../lib/db';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { jsonToString, stringToJson } from '../utils/json';
-import { aiProcessor } from '../services/aiProcessor';
 import fs from 'fs';
 import path from 'path';
+import { unifiedAIProcessor } from '../services/unifiedAIProcessor';
 
 export const uploadDocument = async (req: AuthRequest, res: Response) => {
   try {
@@ -19,7 +19,7 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
     const { originalname, mimetype, size, filename } = req.file;
     const filePath = path.join(process.env.UPLOAD_PATH || './uploads', filename);
 
-    // Validar que el archivo existe en disco
+    // Check if the file exists on disk
     if (!fs.existsSync(filePath)) {
       return res.status(400).json({ error: 'Uploaded file not found' });
     }
@@ -38,7 +38,7 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
       },
     });
 
-    // Leer el archivo desde disco para procesamiento
+    // Read file from disk for processing
     const fileBuffer = fs.readFileSync(filePath);
 
     // Async processing with AI
@@ -64,8 +64,9 @@ async function processDocumentWithAI(documentId: string, fileBuffer: Buffer, mim
     });
 
     // Process with AI
-    const result = await aiProcessor.processDocument(fileBuffer, mimeType, filename);
+    const result = await unifiedAIProcessor.processDocument(fileBuffer, mimeType, filename);
 
+    // Update document status
     await prisma.document.update({
       where: { id: documentId },
       data: {
@@ -75,11 +76,13 @@ async function processDocumentWithAI(documentId: string, fileBuffer: Buffer, mim
       },
     });
 
+    // Create processing record - SINGLE CREATE (removed duplicate)
     await prisma.documentProcessing.create({
       data: {
         documentId: documentId,
         extractedData: jsonToString(result.extractedData),
         confidence: result.confidence,
+        processingEngine: result.processingEngine, // New field
         startedAt: new Date(),
         completedAt: new Date(),
       },
@@ -142,7 +145,8 @@ export const getDocuments = async (req: AuthRequest, res: Response) => {
           processing: {
             select: {
               confidence: true,
-              completedAt: true
+              completedAt: true,
+              processingEngine: true
             }
           }
         }
@@ -158,6 +162,7 @@ export const getDocuments = async (req: AuthRequest, res: Response) => {
       uploadedAt: doc.uploadedAt.toISOString(),
       processedAt: doc.processedAt?.toISOString(),
       confidence: doc.processing?.confidence,
+      processingEngine: doc.processing?.processingEngine,
     }));
 
     res.json({
@@ -202,6 +207,7 @@ export const getDocument = async (req: AuthRequest, res: Response) => {
         uploadedAt: document.uploadedAt.toISOString(),
         processedAt: document.processedAt?.toISOString(),
         confidence: document.processing?.confidence,
+        processingEngine: document.processing?.processingEngine,
         extractedData,
         fileUrl: document.fileUrl,
         fileSize: document.fileSize,
@@ -266,6 +272,46 @@ export const getDocumentMetrics = async (req: AuthRequest, res: Response) => {
     res.json({ stats });
   } catch (error) {
     console.error('Get document metrics error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getDocumentStatus = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const document = await prisma.document.findFirst({
+      where: {
+        id,
+        userId: req.user?.userId,
+      },
+      select: {
+        id: true,
+        status: true,
+        processedAt: true,
+        processing: {
+          select: {
+            confidence: true,
+            completedAt: true,
+            error: true,
+          }
+        }
+      }
+    });
+
+    if (!document) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    res.json({
+      id: document.id,
+      status: document.status.toLowerCase(),
+      processedAt: document.processedAt?.toISOString(),
+      confidence: document.processing?.confidence,
+      error: document.processing?.error,
+    });
+  } catch (error) {
+    console.error('Get document status error:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };

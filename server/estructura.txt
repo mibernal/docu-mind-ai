@@ -1,9 +1,14 @@
 server
+├── .cspell.json
 ├── .env
 ├── estructura.txt
 ├── package.json
 ├── prisma
 │   ├── dev.db
+│   ├── migrations
+│   │   ├── 20251105174211_add_processing_engine
+│   │   │   └── migration.sql
+│   │   └── migration_lock.toml
 │   ├── schema.prisma
 │   └── seed.ts
 ├── src
@@ -26,7 +31,9 @@ server
 │   │   ├── template.routes.ts
 │   │   └── user.routes.ts
 │   ├── services
-│   │   └── aiProcessor.ts
+│   │   ├── aiProcessor.ts
+│   │   ├── geminiProcessor.ts
+│   │   └── unifiedAIProcessor.ts
 │   └── utils
 │       ├── json.ts
 │       ├── jwt.ts
@@ -35,3 +42,7 @@ server
 ├── tree.cjs
 ├── tsconfig.json
 └── uploads
+    ├── document-1762361408068-734992456.pdf
+    ├── document-1762364055062-825039306.pdf
+    ├── document-1762364108561-360437318.pdf
+    └── document-1762371759188-58938681.pdf

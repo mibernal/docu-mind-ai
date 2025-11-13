@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { DocumentsTable } from "@/components/documents/DocumentsTable";
+import { ExportButton } from "@/components/documents/ExportButton"; // NUEVO IMPORT
 import { Document } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -93,6 +94,11 @@ export default function Documents() {
             </p>
           </div>
           <div className="flex gap-2">
+            {/* NUEVO BOTÓN DE EXPORTACIÓN */}
+            <ExportButton 
+              documents={documents} 
+              disabled={isLoading || documents.length === 0}
+            />
             <Button variant="outline" onClick={handleRefresh} disabled={isLoading}>
               <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               Refresh
@@ -125,6 +131,8 @@ export default function Documents() {
                 <SelectItem value="invoice">Invoice</SelectItem>
                 <SelectItem value="receipt">Receipt</SelectItem>
                 <SelectItem value="contract">Contract</SelectItem>
+                {/* NUEVO TIPO DE DOCUMENTO */}
+                <SelectItem value="contract_certification">Certificación Contrato</SelectItem>
                 <SelectItem value="other">Other</SelectItem>
               </SelectContent>
             </Select>
@@ -147,10 +155,10 @@ export default function Documents() {
           </div>
         </form>
 
-<DocumentsTable 
-  documents={filteredDocuments} 
-  isLoading={isLoading}
-/>
+        <DocumentsTable 
+          documents={filteredDocuments} 
+          isLoading={isLoading}
+        />
 
         <div className="flex items-center justify-between text-sm text-muted-foreground">
           <p>

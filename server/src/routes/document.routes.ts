@@ -3,7 +3,8 @@ import {
   uploadDocument, 
   getDocuments, 
   getDocument, 
-  getDocumentMetrics 
+  getDocumentMetrics,
+  getDocumentStatus
 } from '../controllers/document.controller';
 import { authMiddleware } from '../middleware/auth.middleware';
 import { uploadLimiter } from '../middleware/rateLimit.middleware';
@@ -26,5 +27,6 @@ router.post(
 router.get('/', getDocuments);
 router.get('/metrics', getDocumentMetrics);
 router.get('/:id', getDocument);
+router.get('/:id/status', getDocumentStatus);
 
 export default router;

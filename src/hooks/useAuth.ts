@@ -1,4 +1,5 @@
-﻿import { useState, useEffect, createContext, useContext, ReactNode } from 'react';
+﻿// src/hooks/useAuth.ts
+import { useState, useEffect, createContext, useContext, ReactNode, useRef } from 'react';
 import { apiClient } from '../lib/api';
 import { User } from '../types';
 import React from 'react';
@@ -22,9 +23,14 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
+  
+  // 🔥 CORRECCIÓN CRÍTICA: Evitar bucles infinitos
+  const hasFetchedUser = useRef(false);
 
   useEffect(() => {
-    if (token) {
+    // Solo ejecutar si hay token y no se ha hecho la petición antes
+    if (token && !hasFetchedUser.current) {
+      hasFetchedUser.current = true;
       fetchUser();
     } else {
       setIsLoading(false);
@@ -33,35 +39,55 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const fetchUser = async () => {
     try {
+      setIsLoading(true);
       const data = await apiClient.get('/auth/me');
       setUser(data.user);
     } catch (error) {
       console.error('Failed to fetch user:', error);
-      localStorage.removeItem('token');
-      setToken(null);
+      // 🔥 CORRECCIÓN: Solo limpiar si es un error de autenticación
+      if (error instanceof Error && error.message.includes('401')) {
+        localStorage.removeItem('token');
+        setToken(null);
+      }
     } finally {
       setIsLoading(false);
     }
   };
 
   const login = async (email: string, password: string) => {
-    const data = await apiClient.post('/auth/login', { email, password });
-    setToken(data.token);
-    setUser(data.user);
-    localStorage.setItem('token', data.token);
+    try {
+      setIsLoading(true);
+      const data = await apiClient.post('/auth/login', { email, password });
+      setToken(data.token);
+      setUser(data.user);
+      localStorage.setItem('token', data.token);
+      // Resetear el flag para futuras verificaciones
+      hasFetchedUser.current = true;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const register = async (name: string, email: string, password: string) => {
-    const data = await apiClient.post('/auth/register', { name, email, password });
-    setToken(data.token);
-    setUser(data.user);
-    localStorage.setItem('token', data.token);
+    try {
+      setIsLoading(true);
+      const data = await apiClient.post('/auth/register', { name, email, password });
+      setToken(data.token);
+      setUser(data.user);
+      localStorage.setItem('token', data.token);
+      // Resetear el flag para futuras verificaciones
+      hasFetchedUser.current = true;
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const logout = () => {
     setUser(null);
     setToken(null);
     localStorage.removeItem('token');
+    // Resetear el flag al hacer logout
+    hasFetchedUser.current = false;
   };
 
   const value: AuthContextType = {
@@ -73,12 +99,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     isLoading,
   };
 
-  // Asegúrate de que esta parte esté exactamente así:
-    return React.createElement(
+  return React.createElement(
     AuthContext.Provider,
     { value: value },
     children
-    );
+  );
 };
 
 export const useAuth = () => {

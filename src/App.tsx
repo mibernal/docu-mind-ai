@@ -1,8 +1,10 @@
-import { Toaster } from "@/components/ui/sonner"; // Cambiado a solo importar desde sonner
+// src/App.tsx (actualizado)
+import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import ErrorBoundary from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -17,13 +19,22 @@ import NotFound from "./pages/NotFound";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      retry: 1,
+      retry: (failureCount, error: any) => {
+        if (error?.status === 429) return false;
+        return failureCount < 2;
+      },
+      staleTime: 5 * 60 * 1000,
       refetchOnWindowFocus: false,
+    },
+    mutations: {
+      retry: (failureCount, error: any) => {
+        if (error?.status === 429) return false;
+        return failureCount < 1;
+      },
     },
   },
 });
 
-// Componente para rutas protegidas
 const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, isLoading } = useAuth();
   
@@ -42,7 +53,6 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
-// Componente para rutas públicas (redirige al dashboard si ya está autenticado)
 const PublicRoute = ({ children }: { children: React.ReactNode }) => {
   const { user, isLoading } = useAuth();
   
@@ -62,103 +72,114 @@ const PublicRoute = ({ children }: { children: React.ReactNode }) => {
 };
 
 const App = () => (
-  <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <BrowserRouter>
-        <AuthProvider>
-          <Routes>
-            {/* Rutas públicas con redirección si está autenticado */}
-            <Route 
-              path="/" 
-              element={
-                <PublicRoute>
-                  <Index />
-                </PublicRoute>
-              } 
-            />
-            <Route 
-              path="/login" 
-              element={
-                <PublicRoute>
-                  <Login />
-                </PublicRoute>
-              } 
-            />
-            <Route 
-              path="/register" 
-              element={
-                <PublicRoute>
-                  <Register />
-                </PublicRoute>
-              } 
-            />
+  <ErrorBoundary>
+    <QueryClientProvider client={queryClient}>
+      <TooltipProvider>
+        <BrowserRouter>
+          <AuthProvider>
+            <Routes>
+              <Route 
+                path="/" 
+                element={
+                  <PublicRoute>
+                    <Index />
+                  </PublicRoute>
+                } 
+              />
+              <Route 
+                path="/login" 
+                element={
+                  <PublicRoute>
+                    <Login />
+                  </PublicRoute>
+                } 
+              />
+              <Route 
+                path="/register" 
+                element={
+                  <PublicRoute>
+                    <Register />
+                  </PublicRoute>
+                } 
+              />
+              
+              {/* Rutas protegidas con Error Boundary */}
+              <Route 
+                path="/dashboard" 
+                element={
+                  <ProtectedRoute>
+                    <ErrorBoundary>
+                      <Dashboard />
+                    </ErrorBoundary>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/documents" 
+                element={
+                  <ProtectedRoute>
+                    <ErrorBoundary>
+                      <Documents />
+                    </ErrorBoundary>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/documents/:id" 
+                element={
+                  <ProtectedRoute>
+                    <ErrorBoundary>
+                      <DocumentDetail />
+                    </ErrorBoundary>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/documents/upload" 
+                element={
+                  <ProtectedRoute>
+                    <ErrorBoundary>
+                      <DocumentUpload />
+                    </ErrorBoundary>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/templates" 
+                element={
+                  <ProtectedRoute>
+                    <ErrorBoundary>
+                      <Templates />
+                    </ErrorBoundary>
+                  </ProtectedRoute>
+                } 
+              />
+              <Route 
+                path="/settings" 
+                element={
+                  <ProtectedRoute>
+                    <ErrorBoundary>
+                      <Settings />
+                    </ErrorBoundary>
+                  </ProtectedRoute>
+                } 
+              />
+              
+              <Route path="*" element={<NotFound />} />
+            </Routes>
             
-            {/* Rutas protegidas */}
-            <Route 
-              path="/dashboard" 
-              element={
-                <ProtectedRoute>
-                  <Dashboard />
-                </ProtectedRoute>
-              } 
+            <Toaster 
+              position="top-right"
+              duration={4000}
+              expand={true}
+              closeButton
+              richColors
             />
-            <Route 
-              path="/documents" 
-              element={
-                <ProtectedRoute>
-                  <Documents />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/documents/:id" 
-              element={
-                <ProtectedRoute>
-                  <DocumentDetail />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/documents/upload" 
-              element={
-                <ProtectedRoute>
-                  <DocumentUpload />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/templates" 
-              element={
-                <ProtectedRoute>
-                  <Templates />
-                </ProtectedRoute>
-              } 
-            />
-            <Route 
-              path="/settings" 
-              element={
-                <ProtectedRoute>
-                  <Settings />
-                </ProtectedRoute>
-              } 
-            />
-            
-            {/* Ruta comodín para 404 */}
-            <Route path="*" element={<NotFound />} />
-          </Routes>
-          
-          {/* Toaster/Sonner debe estar fuera de Routes pero dentro del Router */}
-          <Toaster 
-            position="top-right"
-            duration={4000}
-            expand={true}
-            closeButton
-            richColors
-          />
-        </AuthProvider>
-      </BrowserRouter>
-    </TooltipProvider>
-  </QueryClientProvider>
+          </AuthProvider>
+        </BrowserRouter>
+      </TooltipProvider>
+    </QueryClientProvider>
+  </ErrorBoundary>
 );
 
 export default App;

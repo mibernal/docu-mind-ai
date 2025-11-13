@@ -1,5 +1,10 @@
 const API_BASE_URL = 'http://localhost:3001/api';
 
+// Interfaz para extender Error con propiedades adicionales
+interface ApiError extends Error {
+  status?: number;
+}
+
 class ApiClient {
   private async request(endpoint: string, options: RequestInit = {}) {
     const url = `${API_BASE_URL}${endpoint}`;
@@ -25,7 +30,11 @@ class ApiClient {
         const text = await response.text();
         errorMessage = text || errorMessage;
       }
-      throw new Error(errorMessage);
+      
+      // Crear error con propiedad status
+      const error: ApiError = new Error(errorMessage);
+      error.status = response.status;
+      throw error;
     }
 
     return response.json();
@@ -54,7 +63,8 @@ class ApiClient {
       method: 'DELETE',
     });
   }
-    async getDocuments(params?: {
+
+  async getDocuments(params?: {
     page?: number;
     limit?: number;
     type?: string;
@@ -74,6 +84,11 @@ class ApiClient {
 
   async getDocument(id: string) {
     return this.get(`/documents/${id}`);
+  }
+
+  // NUEVO MÉTODO: Obtener estado del documento
+  async getDocumentStatus(id: string) {
+    return this.get(`/documents/${id}/status`);
   }
 
   async getDocumentMetrics() {
@@ -102,11 +117,21 @@ class ApiClient {
         const text = await response.text();
         errorMessage = text || errorMessage;
       }
-      throw new Error(errorMessage);
+      
+      // Crear error con propiedad status
+      const error: ApiError = new Error(errorMessage);
+      error.status = response.status;
+      throw error;
     }
 
     return response.json();
   }
 }
 
+// CORRECCIÓN: Exportar la instancia de ApiClient para que sea utilizada
 export const apiClient = new ApiClient();
+
+// Función auxiliar para verificar si un error es de tipo ApiError
+export const isApiError = (error: unknown): error is ApiError => {
+  return error instanceof Error && 'status' in error;
+};

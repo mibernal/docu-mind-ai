@@ -49,8 +49,9 @@ model Document {
   fileUrl     String
   fileSize    Int
   fileType    String
-  documentType String   // En lugar de Enum: "INVOICE", "RECEIPT", "CONTRACT", "OTHER"
-  status      String   @default("PENDING") // En lugar de Enum: "PENDING", "PROCESSING", "COMPLETED", "FAILED"
+  // AGREGAR CONTRACT_CERTIFICATION
+  documentType String   // "INVOICE", "RECEIPT", "CONTRACT", "CONTRACT_CERTIFICATION", "OTHER"
+  status      String   @default("PENDING") // "PENDING", "PROCESSING", "COMPLETED", "FAILED"
   uploadedAt  DateTime @default(now())
   processedAt DateTime?
 
@@ -75,9 +76,10 @@ model DocumentProcessing {
   documentId  String   @unique
   document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
 
-  // CAMPOS DE RESULTADO DE IA - Usar String en lugar de Json para SQLite
-  extractedData String? // Almacenar JSON como string
-  confidence   Float? // Confianza promedio de la extracción
+  // CAMPOS DE RESULTADO DE IA
+  extractedData String?
+  confidence   Float?
+  processingEngine String? @default("unknown") // Nuevo campo
 
   // METADATA DE PROCESAMIENTO
   startedAt   DateTime?
