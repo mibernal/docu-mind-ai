@@ -1,3 +1,4 @@
+//server\src\utils\json.ts
 // Utilidades para manejar JSON como string (compatible con SQLite)
 
 export const stringToJson = <T>(jsonString: string | null): T | null => {

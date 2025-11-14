@@ -1,3 +1,4 @@
+//server\src\routes\document.routes.ts
 import { Router } from 'express';
 import { 
   uploadDocument, 

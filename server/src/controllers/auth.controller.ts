@@ -1,14 +1,16 @@
+// server/src/controllers/auth.controller.ts - VERSIÓN CORREGIDA
 import { Request, Response } from 'express';
 import { prisma } from '../lib/db';
 import { hashPassword, verifyPassword } from '../utils/password';
 import { generateToken } from '../utils/jwt';
 import { AuthRequest } from '../middleware/auth.middleware';
+import { jsonToString } from '../utils/json';
 
 export const register = async (req: Request, res: Response) => {
   try {
     const { email, password, name } = req.body;
 
-    // Verificar si el usuario ya existe
+    // Check if user already exists
     const existingUser = await prisma.user.findUnique({
       where: { email },
     });
@@ -20,14 +22,14 @@ export const register = async (req: Request, res: Response) => {
     // Hash password
     const hashedPassword = await hashPassword(password);
 
-    // Crear organización por defecto
+    // Create default organization
     const organization = await prisma.organization.create({
       data: {
         name: `${name || email}'s Organization`,
       },
     });
 
-    // Crear usuario
+    // Create user
     const user = await prisma.user.create({
       data: {
         email,
@@ -37,7 +39,7 @@ export const register = async (req: Request, res: Response) => {
       },
     });
 
-    // Crear suscripción gratuita
+    // Create free subscription
     await prisma.billingSubscription.create({
       data: {
         userId: user.id,
@@ -45,7 +47,78 @@ export const register = async (req: Request, res: Response) => {
       },
     });
 
-    // Generar token
+    // CREATE USER PREFERENCES WITH DEFAULT VALUES
+    // @ts-ignore - Temporal hasta que Prisma se regenere
+    await prisma.userPreferences.create({
+      data: {
+        userId: user.id,
+        useCase: 'CONTRACT_CERTIFICATION',
+        customFields: null,
+      },
+    });
+
+    // CREATE DEFAULT EXTRACTION TEMPLATE FOR USER
+    const defaultTemplate = {
+      fields: [
+        {
+          name: "cliente",
+          type: "text",
+          required: true,
+          description: "Client or contracting entity name"
+        },
+        {
+          name: "contratista",
+          type: "text", 
+          required: true,
+          description: "Contractor or provider name"
+        },
+        {
+          name: "fechaInicio",
+          type: "date",
+          required: true,
+          description: "Contract start date"
+        },
+        {
+          name: "fechaFin",
+          type: "date",
+          required: true,
+          description: "Contract end date"
+        },
+        {
+          name: "objeto",
+          type: "text",
+          required: true,
+          description: "Contract purpose"
+        },
+        {
+          name: "valorSinIva",
+          type: "currency",
+          required: true,
+          description: "Contract value without VAT"
+        },
+        {
+          name: "valorConIva",
+          type: "currency",
+          required: true,
+          description: "Contract value with VAT"
+        }
+      ]
+    };
+
+    // @ts-ignore - Temporal hasta que Prisma se regenere
+    await prisma.extractionTemplate.create({
+      data: {
+        name: 'Basic Contract Certification',
+        description: 'Default template for contract certifications',
+        fields: jsonToString(defaultTemplate),
+        organizationId: organization.id,
+        userId: user.id,
+        isDefault: true,
+        category: 'contract'
+      },
+    });
+
+    // Generate token
     const token = generateToken({
       userId: user.id,
       email: user.email,
@@ -70,12 +143,17 @@ export const login = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
 
-    // Buscar usuario
+    // Find user with all necessary relations
     const user = await prisma.user.findUnique({
       where: { email },
       include: {
         organization: true,
-        subscriptions: true,
+        subscriptions: {
+          take: 1,
+          orderBy: { createdAt: 'desc' }
+        },
+        // @ts-ignore - Temporal
+        preferences: true,
       },
     });
 
@@ -83,13 +161,13 @@ export const login = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
 
-    // Verificar password
+    // Verify password
     const isValidPassword = await verifyPassword(password, user.password);
     if (!isValidPassword) {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
 
-    // Generar token
+    // Generate token
     const token = generateToken({
       userId: user.id,
       email: user.email,
@@ -106,6 +184,11 @@ export const login = async (req: Request, res: Response) => {
           name: user.organization.name,
         },
         plan: user.subscriptions[0]?.plan || 'FREE',
+        preferences: user.preferences ? {
+          useCase: user.preferences.useCase,
+          customFields: user.preferences.customFields ? 
+            JSON.parse(user.preferences.customFields) : null
+        } : null
       },
       token,
     });
@@ -121,7 +204,14 @@ export const getMe = async (req: AuthRequest, res: Response) => {
       where: { id: req.user?.userId },
       include: {
         organization: true,
-        subscriptions: true,
+        subscriptions: {
+          take: 1,
+          orderBy: { createdAt: 'desc' }
+        },
+        // @ts-ignore - Temporal
+        preferences: true,
+        // @ts-ignore - Temporal  
+        customFields: true,
       },
     });
 
@@ -139,6 +229,12 @@ export const getMe = async (req: AuthRequest, res: Response) => {
           name: user.organization.name,
         },
         plan: user.subscriptions[0]?.plan || 'FREE',
+        preferences: user.preferences ? {
+          useCase: user.preferences.useCase,
+          customFields: user.preferences.customFields ? 
+            JSON.parse(user.preferences.customFields) : null
+        } : null,
+        customFields: user.customFields
       },
     });
   } catch (error) {
@@ -148,7 +244,5 @@ export const getMe = async (req: AuthRequest, res: Response) => {
 };
 
 export const logout = async (req: Request, res: Response) => {
-  // Con JWT, el logout es principalmente del lado del cliente
-  // Podríamos implementar una blacklist de tokens si es necesario
   res.json({ message: 'Logged out successfully' });
 };

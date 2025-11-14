@@ -1,10 +1,12 @@
+// src/controllers/document.controller.ts
 import { Response } from 'express';
 import { prisma } from '../lib/db';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { jsonToString, stringToJson } from '../utils/json';
 import fs from 'fs';
 import path from 'path';
-import { unifiedAIProcessor } from '../services/unifiedAIProcessor';
+// Cambiar de unifiedAIProcessor a personalizedProcessor
+import { personalizedProcessor } from '../services/personalizedProcessor';
 
 export const uploadDocument = async (req: AuthRequest, res: Response) => {
   try {
@@ -41,12 +43,12 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
     // Read file from disk for processing
     const fileBuffer = fs.readFileSync(filePath);
 
-    // Async processing with AI
-    processDocumentWithAI(document.id, fileBuffer, mimetype, originalname);
+    // CAMBIAR: Procesamiento personalizado con preferencias del usuario
+    processWithUserPreferences(document.id, fileBuffer, mimetype, originalname, req.user.userId);
 
     res.status(201).json({
       documentId: document.id,
-      message: 'Document uploaded successfully. AI processing started.',
+      message: 'Document uploaded successfully. Personalized AI processing started.',
       status: 'PROCESSING'
     });
   } catch (error) {
@@ -55,16 +57,18 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// Async processing function
-async function processDocumentWithAI(documentId: string, fileBuffer: Buffer, mimeType: string, filename: string) {
+// REEMPLAZAR función processDocumentWithAI por processWithUserPreferences
+async function processWithUserPreferences(documentId: string, fileBuffer: Buffer, mimeType: string, filename: string, userId: string) {
   try {
     await prisma.document.update({
       where: { id: documentId },
       data: { status: 'PROCESSING' },
     });
 
-    // Process with AI
-    const result = await unifiedAIProcessor.processDocument(fileBuffer, mimeType, filename);
+    // CAMBIAR: Procesar con preferencias del usuario
+    const result = await personalizedProcessor.processWithUserPreferences(
+      fileBuffer, mimeType, filename, userId
+    );
 
     // Update document status
     await prisma.document.update({
@@ -76,21 +80,27 @@ async function processDocumentWithAI(documentId: string, fileBuffer: Buffer, mim
       },
     });
 
-    // Create processing record - SINGLE CREATE (removed duplicate)
+    // Create processing record - incluir campos personalizados
     await prisma.documentProcessing.create({
       data: {
         documentId: documentId,
-        extractedData: jsonToString(result.extractedData),
+        extractedData: jsonToString({
+          ...result.extractedData,
+          _metadata: {
+            userFieldsMatched: result.userFieldsMatched,
+            personalizedProcessing: true
+          }
+        }),
         confidence: result.confidence,
-        processingEngine: result.processingEngine, // New field
+        processingEngine: result.processingEngine,
         startedAt: new Date(),
         completedAt: new Date(),
       },
     });
 
-    console.log(`Document ${documentId} processed successfully with AI`);
+    console.log(`Document ${documentId} processed successfully with user preferences`);
   } catch (error) {
-    console.error('AI processing error:', error);
+    console.error('Personalized processing error:', error);
     
     await prisma.document.update({
       where: { id: documentId },
@@ -111,6 +121,7 @@ async function processDocumentWithAI(documentId: string, fileBuffer: Buffer, mim
   }
 }
 
+// Las demás funciones (getDocuments, getDocument, getDocumentMetrics, getDocumentStatus) se mantienen igual
 export const getDocuments = async (req: AuthRequest, res: Response) => {
   try {
     const { page = '1', limit = '10', type, status, search } = req.query;

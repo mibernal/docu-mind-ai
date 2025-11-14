@@ -127,7 +127,12 @@
     "SMMLV",
     "COP",
     "VAT",
-    "CONTRACT_CERTIFICATION"
+    "CONTRACT_CERTIFICATION",
+    "contrato",
+    "proveedor",
+    "vigentes",
+    "certificación",
+    "finalización"
   ],
   "flagWords": [],
   "ignorePaths": [
