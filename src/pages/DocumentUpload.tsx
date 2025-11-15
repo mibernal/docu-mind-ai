@@ -1,3 +1,4 @@
+//src\pages\DocumentUpload.tsx
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { FileUpload } from "@/components/documents/FileUpload";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";

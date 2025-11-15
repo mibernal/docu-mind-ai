@@ -1,3 +1,4 @@
+//src\pages\Documents.tsx
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { DocumentsTable } from "@/components/documents/DocumentsTable";

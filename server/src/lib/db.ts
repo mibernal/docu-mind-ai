@@ -1,3 +1,4 @@
+//server\src\lib\db.ts
 import { PrismaClient } from '@prisma/client'
 
 // PrismaClient está attached al global object en desarrollo para prevenir

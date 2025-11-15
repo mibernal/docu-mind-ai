@@ -1,3 +1,4 @@
+//src\lib\api.ts
 const API_BASE_URL = 'http://localhost:3001/api';
 
 // Interfaz para extender Error con propiedades adicionales
@@ -125,6 +126,42 @@ class ApiClient {
     }
 
     return response.json();
+  }
+
+    // NUEVOS MÉTODOS PARA PREFERENCIAS
+  async setUserPreferences(data: {
+    useCase: string;
+    customFields?: any[];
+    documentTypes?: string[];
+  }) {
+    return this.post('/preferences/onboarding', data);
+  }
+
+  async getUserPreferences() {
+    return this.get('/preferences');
+  }
+
+  async updateUserPreferences(data: {
+    useCase: string;
+    customFields?: any[];
+  }) {
+    return this.put('/preferences', data);
+  }
+
+  async getPredefinedTemplates() {
+    return this.get('/preferences/templates/predefined');
+  }
+
+  async addCustomField(data: {
+    name: string;
+    type: string;
+    description?: string;
+  }) {
+    return this.post('/preferences/custom-fields', data);
+  }
+
+  async deleteCustomField(id: string) {
+    return this.delete(`/preferences/custom-fields/${id}`);
   }
 }
 

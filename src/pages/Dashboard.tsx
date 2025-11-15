@@ -1,3 +1,4 @@
+//src\pages\Dashboard.tsx
 import { useEffect, useState } from "react";
 import { FileText, Clock, CheckCircle2, TrendingUp } from "lucide-react";
 import { MetricCard } from "@/components/dashboard/MetricCard";
@@ -118,7 +119,7 @@ export default function Dashboard() {
               </Button>
             </CardHeader>
             <CardContent className="p-0">
-              <DocumentsTable documents={recentDocuments} />
+              <DocumentsTable documents={recentDocuments} isLoading={false} />
             </CardContent>
           </Card>
 

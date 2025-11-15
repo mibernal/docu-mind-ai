@@ -1,6 +1,7 @@
 // src/types/api.ts
 import { User } from './index';
 
+
 // Tipos para las respuestas de la API
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -43,3 +44,4 @@ export interface DocumentUploadResponse {
   filename: string;
   status: string;
 }
+

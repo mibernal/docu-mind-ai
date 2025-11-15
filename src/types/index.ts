@@ -1,3 +1,4 @@
+// src/types/index.ts
 export interface User {
   id: string;
   email: string;
@@ -8,13 +9,39 @@ export interface User {
     id: string;
     name: string;
   };
+  // AGREGAR PREFERENCIAS DEL USUARIO
+  preferences?: {
+    useCase: string;
+    customFields?: CustomField[];
+  };
+  customFields?: CustomField[];
+}
+
+// NUEVOS TIPOS PARA PERSONALIZACIÓN
+export interface UserPreferences {
+  useCase: 'CONTRACT_CERTIFICATION' | 'INVOICE_PROCESSING' | 'LEGAL_DOCUMENTS' | 'CUSTOM';
+  customFields?: CustomField[];
+}
+
+export interface CustomField {
+  id?: string;
+  name: string;
+  type: 'text' | 'number' | 'date' | 'currency' | 'percentage' | 'boolean';
+  required: boolean;
+  description?: string;
+}
+
+export interface PredefinedTemplate {
+  name: string;
+  description: string;
+  fields: CustomField[];
 }
 
 // AGREGAR NUEVO TIPO DE DOCUMENTO
 export type DocumentType = 'invoice' | 'receipt' | 'contract' | 'contract_certification' | 'legal' | 'other';
 export type DocumentStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
-// AGREGAR INTERFAZ PARA CERTIFICACIONES DE CONTRATOS
+// INTERFAZ PARA CERTIFICACIONES DE CONTRATOS
 export interface ContractCertificationData {
   cliente: string;
   contratista: string;
@@ -72,7 +99,6 @@ export interface ExtractionResult {
   documentType: string;
 }
 
-// Extender la interfaz Document existente
 export interface Document {
   id: string;
   filename: string;
@@ -85,7 +111,7 @@ export interface Document {
   fileType?: string;
   fileUrl?: string;
   extractedData?: any;
-  processingEngine?: string; // AGREGAR ESTE CAMPO
+  processingEngine?: string;
 }
 
 export interface DocumentMetrics {

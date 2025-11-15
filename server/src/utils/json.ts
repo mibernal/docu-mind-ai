@@ -12,14 +12,14 @@ export const stringToJson = <T>(jsonString: string | null): T | null => {
 };
 
 export const jsonToString = (data: any): string => {
-  if (!data) return '{}';
   try {
-    return JSON.stringify(data);
+    return JSON.stringify(data ?? {});
   } catch (error) {
     console.error('Error stringifying JSON:', error);
     return '{}';
   }
 };
+
 
 // Validar que un string sea JSON válido
 export const isValidJson = (str: string): boolean => {
