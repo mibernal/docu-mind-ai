@@ -4,6 +4,7 @@ import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { DocumentsTable } from "@/components/documents/DocumentsTable";
 import { ExportButton } from "@/components/documents/ExportButton"; // NUEVO IMPORT
 import { Document } from "@/types";
+import { ProcessedDocument } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -20,7 +21,7 @@ import { toast } from "sonner";
 
 export default function Documents() {
   const navigate = useNavigate();
-  const [documents, setDocuments] = useState<Document[]>([]);
+  const [documents, setDocuments] = useState<ProcessedDocument[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");

@@ -1,4 +1,4 @@
-// src/types/index.ts
+// src/types/index.ts - CORREGIR Y COMPLETAR
 export interface User {
   id: string;
   email: string;
@@ -9,7 +9,6 @@ export interface User {
     id: string;
     name: string;
   };
-  // AGREGAR PREFERENCIAS DEL USUARIO
   preferences?: {
     useCase: string;
     customFields?: CustomField[];
@@ -17,7 +16,6 @@ export interface User {
   customFields?: CustomField[];
 }
 
-// NUEVOS TIPOS PARA PERSONALIZACIÓN
 export interface UserPreferences {
   useCase: 'CONTRACT_CERTIFICATION' | 'INVOICE_PROCESSING' | 'LEGAL_DOCUMENTS' | 'CUSTOM';
   customFields?: CustomField[];
@@ -37,11 +35,26 @@ export interface PredefinedTemplate {
   fields: CustomField[];
 }
 
-// AGREGAR NUEVO TIPO DE DOCUMENTO
+// CORREGIR: Usar nombres más específicos para evitar conflictos
 export type DocumentType = 'invoice' | 'receipt' | 'contract' | 'contract_certification' | 'legal' | 'other';
 export type DocumentStatus = 'pending' | 'processing' | 'completed' | 'failed';
 
-// INTERFAZ PARA CERTIFICACIONES DE CONTRATOS
+// INTERFAZ COMPLETA PARA DOCUMENTOS
+export interface ProcessedDocument {
+  id: string;
+  filename: string;
+  type: DocumentType;
+  status: DocumentStatus;
+  uploadedAt: string;
+  processedAt?: string;
+  confidence?: number;
+  fileSize?: number;
+  fileType?: string;
+  fileUrl?: string;
+  extractedData?: Record<string, any>;
+  processingEngine?: string;
+}
+
 export interface ContractCertificationData {
   cliente: string;
   contratista: string;
@@ -99,21 +112,6 @@ export interface ExtractionResult {
   documentType: string;
 }
 
-export interface Document {
-  id: string;
-  filename: string;
-  type: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  uploadedAt: string;
-  processedAt?: string;
-  confidence?: number;
-  fileSize?: number;
-  fileType?: string;
-  fileUrl?: string;
-  extractedData?: any;
-  processingEngine?: string;
-}
-
 export interface DocumentMetrics {
   totalDocuments: number;
   processedDocuments: number;
@@ -131,3 +129,6 @@ export interface DocumentUploadResponse {
   message: string;
   status: string;
 }
+
+// ALIAS para compatibilidad (mantener temporalmente)
+export type Document = ProcessedDocument;

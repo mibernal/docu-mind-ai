@@ -20,25 +20,35 @@ class ApiClient {
       },
     };
 
-    const response = await fetch(url, config);
-    
-    if (!response.ok) {
-      let errorMessage = `HTTP error! status: ${response.status}`;
-      try {
-        const errorData = await response.json();
-        errorMessage = errorData.error || errorMessage;
-      } catch {
-        const text = await response.text();
-        errorMessage = text || errorMessage;
-      }
+    try {
+      const response = await fetch(url, config);
       
-      // Crear error con propiedad status
-      const error: ApiError = new Error(errorMessage);
-      error.status = response.status;
+      if (!response.ok) {
+        let errorMessage = `HTTP error! status: ${response.status}`;
+        try {
+          const errorData = await response.json();
+          errorMessage = errorData.error || errorMessage;
+        } catch {
+          // Si no se puede parsear JSON, usar texto plano
+          const text = await response.text();
+          errorMessage = text || errorMessage;
+        }
+        
+        const error = new Error(errorMessage) as any;
+        error.status = response.status;
+        throw error;
+      }
+
+      // Para respuestas vacías (204 No Content)
+      if (response.status === 204) {
+        return null;
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error(`API request failed for ${url}:`, error);
       throw error;
     }
-
-    return response.json();
   }
 
   async get(endpoint: string) {

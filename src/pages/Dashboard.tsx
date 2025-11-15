@@ -1,22 +1,23 @@
 //src\pages\Dashboard.tsx
 import { useEffect, useState } from "react";
-import { FileText, Clock, CheckCircle2, TrendingUp } from "lucide-react";
+import { FileText, Clock, CheckCircle2, TrendingUp, Receipt, Scale, Settings } from "lucide-react";
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { DocumentsTable } from "@/components/documents/DocumentsTable";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { Document, DashboardMetrics } from "@/types";
+import { DashboardMetrics } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
+import { ProcessedDocument } from "@/types";
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
-  const [recentDocuments, setRecentDocuments] = useState<Document[]>([]);
+  const [recentDocuments, setRecentDocuments] = useState<ProcessedDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -122,6 +123,35 @@ export default function Dashboard() {
               <DocumentsTable documents={recentDocuments} isLoading={false} />
             </CardContent>
           </Card>
+
+          <Card>
+  <CardHeader>
+    <CardTitle>Processing Preferences</CardTitle>
+  </CardHeader>
+  <CardContent>
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <div className="p-2 rounded-lg bg-primary/10">
+          {user?.preferences?.useCase === 'CONTRACT_CERTIFICATION' && <FileText className="h-5 w-5 text-primary" />}
+          {user?.preferences?.useCase === 'INVOICE_PROCESSING' && <Receipt className="h-5 w-5 text-primary" />}
+          {user?.preferences?.useCase === 'LEGAL_DOCUMENTS' && <Scale className="h-5 w-5 text-primary" />}
+          {(!user?.preferences?.useCase || user.preferences.useCase === 'CUSTOM') && <Settings className="h-5 w-5 text-primary" />}
+        </div>
+        <div>
+          <p className="font-medium capitalize">
+            {user?.preferences?.useCase ? user.preferences.useCase.toLowerCase().replace(/_/g, ' ') : 'Custom Setup'}
+          </p>
+          <p className="text-sm text-muted-foreground">
+            {user?.preferences?.customFields?.length || 0} custom fields configured
+          </p>
+        </div>
+      </div>
+      <Button variant="outline" size="sm" onClick={() => navigate("/settings")}>
+        Manage
+      </Button>
+    </div>
+  </CardContent>
+</Card>
 
           <Card>
             <CardHeader>

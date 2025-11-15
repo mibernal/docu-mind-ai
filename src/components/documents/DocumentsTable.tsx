@@ -1,143 +1,172 @@
-import { useNavigate } from "react-router-dom";
-import { Document } from "@/types";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
+// src/components/documents/DocumentsTable.tsx - VERSIÓN CORREGIDA
+import { useState } from "react";
+import { Link } from "react-router-dom";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { Button } from "@/components/ui/button";
-import { FileText, Eye, Clock, CheckCircle, XCircle } from "lucide-react";
-import { Skeleton } from "@/components/ui/skeleton";
+import { Badge } from "@/components/ui/badge";
+import { FileText, Download } from "lucide-react";
+import { ProcessedDocument } from "@/types";
 
 interface DocumentsTableProps {
-  documents: Document[];
-  isLoading: boolean;
+  documents: ProcessedDocument[];
+  isLoading?: boolean;
 }
 
 export function DocumentsTable({ documents, isLoading }: DocumentsTableProps) {
-  const navigate = useNavigate();
+  const [selectedDocument, setSelectedDocument] = useState<string | null>(null);
 
-  const getStatusIcon = (status: string) => {
-    switch (status) {
-      case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-600" />;
-      case 'processing':
-        return <Clock className="h-4 w-4 text-blue-600" />;
-      case 'failed':
-        return <XCircle className="h-4 w-4 text-red-600" />;
+  const getTypeColor = (type: string) => {
+    switch (type) {
+      case "contract_certification":
+        return "bg-blue-100 text-blue-800 border-blue-200";
+      case "invoice":
+        return "bg-purple-100 text-purple-800 border-purple-200";
+      case "receipt":
+        return "bg-indigo-100 text-indigo-800 border-indigo-200";
+      case "legal":
+        return "bg-orange-100 text-orange-800 border-orange-200";
       default:
-        return <Clock className="h-4 w-4 text-gray-600" />;
+        return "bg-gray-100 text-gray-800 border-gray-200";
     }
   };
 
   const getStatusColor = (status: string) => {
     switch (status) {
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'processing': return 'bg-blue-100 text-blue-800';
-      case 'failed': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
-
-  // ACTUALIZAR: Agregar color para contract_certification
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case 'invoice': return 'bg-purple-100 text-purple-800';
-      case 'receipt': return 'bg-orange-100 text-orange-800';
-      case 'contract': return 'bg-blue-100 text-blue-800';
-      case 'contract_certification': return 'bg-green-100 text-green-800';
-      case 'legal': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
+      case "completed":
+        return "bg-green-100 text-green-800 border-green-200";
+      case "processing":
+        return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case "failed":
+        return "bg-red-100 text-red-800 border-red-200";
+      default:
+        return "bg-gray-100 text-gray-800 border-gray-200";
     }
   };
 
   if (isLoading) {
     return (
-      <div className="space-y-3">
-        {Array.from({ length: 5 }).map((_, i) => (
-          <Skeleton key={i} className="h-12 w-full" />
-        ))}
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Filename</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Confidence</TableHead>
+              <TableHead>AI Engine</TableHead>
+              <TableHead>Uploaded</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {[...Array(5)].map((_, index) => (
+              <TableRow key={index}>
+                <TableCell className="animate-pulse bg-muted h-6 rounded"></TableCell>
+                <TableCell className="animate-pulse bg-muted h-6 rounded"></TableCell>
+                <TableCell className="animate-pulse bg-muted h-6 rounded"></TableCell>
+                <TableCell className="animate-pulse bg-muted h-6 rounded"></TableCell>
+                <TableCell className="animate-pulse bg-muted h-6 rounded"></TableCell>
+                <TableCell className="animate-pulse bg-muted h-6 rounded"></TableCell>
+                <TableCell className="animate-pulse bg-muted h-6 rounded"></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
       </div>
     );
   }
 
   if (documents.length === 0) {
     return (
-      <div className="text-center py-12">
-        <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-        <h3 className="text-lg font-semibold">No documents found</h3>
-        <p className="text-muted-foreground">
-          Upload your first document to get started with AI processing.
-        </p>
+      <div className="rounded-md border">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Filename</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Confidence</TableHead>
+              <TableHead>AI Engine</TableHead>
+              <TableHead>Uploaded</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRow>
+              <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
+                No documents found
+              </TableCell>
+            </TableRow>
+          </TableBody>
+        </Table>
       </div>
     );
   }
 
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Document</TableHead>
-          <TableHead>Type</TableHead>
-          <TableHead>Status</TableHead>
-          <TableHead>Confidence</TableHead>
-          <TableHead>Uploaded</TableHead>
-          <TableHead>Actions</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {documents.map((document) => (
-          <TableRow key={document.id} className="cursor-pointer hover:bg-muted/50">
-            <TableCell 
-              className="font-medium"
-              onClick={() => navigate(`/documents/${document.id}`)}
-            >
-              <div className="flex items-center gap-2">
-                <FileText className="h-4 w-4 text-muted-foreground" />
-                {document.filename}
-              </div>
-            </TableCell>
-            <TableCell>
-              <Badge className={getTypeColor(document.type)}>
-                {document.type}
-              </Badge>
-            </TableCell>
-            <TableCell>
-              <div className="flex items-center gap-2">
-                {getStatusIcon(document.status)}
-                <Badge variant="outline" className={getStatusColor(document.status)}>
+    <div className="rounded-md border">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Filename</TableHead>
+            <TableHead>Type</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>Confidence</TableHead>
+            <TableHead>AI Engine</TableHead>
+            <TableHead>Uploaded</TableHead>
+            <TableHead className="text-right">Actions</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {documents.map((document) => (
+            <TableRow key={document.id}>
+              <TableCell className="font-medium">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-muted-foreground" />
+                  <span className="truncate max-w-[200px]" title={document.filename}>
+                    {document.filename}
+                  </span>
+                </div>
+              </TableCell>
+              <TableCell>
+                <Badge className={getTypeColor(document.type)} variant="outline">
+                  {document.type.replace('_', ' ')}
+                </Badge>
+              </TableCell>
+              <TableCell>
+                <Badge className={getStatusColor(document.status)} variant="outline">
                   {document.status}
                 </Badge>
-              </div>
-            </TableCell>
-            <TableCell>
-              {document.confidence ? (
-                <div className="flex items-center gap-2">
-                  <div className="w-16 bg-secondary rounded-full h-2">
-                    <div 
-                      className="bg-green-600 h-2 rounded-full" 
-                      style={{ width: `${document.confidence * 100}%` }}
-                    />
-                  </div>
-                  <span className="text-sm">{Math.round(document.confidence * 100)}%</span>
-                </div>
-              ) : (
-                <span className="text-muted-foreground text-sm">-</span>
-              )}
-            </TableCell>
-            <TableCell className="text-sm text-muted-foreground">
-              {new Date(document.uploadedAt).toLocaleDateString()}
-            </TableCell>
-            <TableCell>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => navigate(`/documents/${document.id}`)}
-              >
-                <Eye className="h-4 w-4 mr-1" />
-                View
-              </Button>
-            </TableCell>
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+              </TableCell>
+              <TableCell>
+                {document.confidence ? `${(document.confidence * 100).toFixed(1)}%` : 'N/A'}
+              </TableCell>
+              <TableCell>
+                <span className="text-sm capitalize">
+                  {document.processingEngine || 'N/A'}
+                </span>
+              </TableCell>
+              <TableCell>
+                {new Date(document.uploadedAt).toLocaleDateString()}
+              </TableCell>
+              <TableCell className="text-right">
+                <Button variant="ghost" size="sm" asChild>
+                  <Link to={`/documents/${document.id}`}>
+                    View Details
+                  </Link>
+                </Button>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }

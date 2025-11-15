@@ -1,4 +1,4 @@
-﻿// src/hooks/useAuth.ts
+﻿// src/hooks/useAuth.ts - VERSIÓN SIN JSX
 import { useState, useEffect, createContext, useContext, ReactNode, useRef } from 'react';
 import { apiClient } from '../lib/api';
 import { User } from '../types';
@@ -23,12 +23,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
-  
-  // 🔥 CORRECCIÓN CRÍTICA: Evitar bucles infinitos
   const hasFetchedUser = useRef(false);
 
   useEffect(() => {
-    // Solo ejecutar si hay token y no se ha hecho la petición antes
     if (token && !hasFetchedUser.current) {
       hasFetchedUser.current = true;
       fetchUser();
@@ -44,7 +41,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setUser(data.user);
     } catch (error) {
       console.error('Failed to fetch user:', error);
-      // 🔥 CORRECCIÓN: Solo limpiar si es un error de autenticación
       if (error instanceof Error && error.message.includes('401')) {
         localStorage.removeItem('token');
         setToken(null);
@@ -61,7 +57,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setToken(data.token);
       setUser(data.user);
       localStorage.setItem('token', data.token);
-      // Resetear el flag para futuras verificaciones
       hasFetchedUser.current = true;
     } finally {
       setIsLoading(false);
@@ -75,7 +70,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
       setToken(data.token);
       setUser(data.user);
       localStorage.setItem('token', data.token);
-      // Resetear el flag para futuras verificaciones
       hasFetchedUser.current = true;
     } finally {
       setIsLoading(false);
@@ -86,7 +80,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     setUser(null);
     setToken(null);
     localStorage.removeItem('token');
-    // Resetear el flag al hacer logout
     hasFetchedUser.current = false;
   };
 
@@ -99,6 +92,7 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     isLoading,
   };
 
+  // Usar React.createElement en lugar de JSX
   return React.createElement(
     AuthContext.Provider,
     { value: value },
