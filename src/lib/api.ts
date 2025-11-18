@@ -1,4 +1,4 @@
-//src\lib\api.ts
+// src/lib/api.ts
 const API_BASE_URL = 'http://localhost:3001/api';
 
 // Interfaz para extender Error con propiedades adicionales
@@ -7,15 +7,20 @@ interface ApiError extends Error {
 }
 
 class ApiClient {
-  private async request(endpoint: string, options: RequestInit = {}) {
+  private token: string | null;
+
+  constructor() {
+    this.token = localStorage.getItem('token');
+  }
+
+  private async request<T = any>(endpoint: string, options: RequestInit = {}): Promise<T> {
     const url = `${API_BASE_URL}${endpoint}`;
-    const token = localStorage.getItem('token');
     
     const config: RequestInit = {
       ...options,
       headers: {
         'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` }),
+        ...(this.token && { Authorization: `Bearer ${this.token}` }),
         ...options.headers,
       },
     };
@@ -34,14 +39,14 @@ class ApiClient {
           errorMessage = text || errorMessage;
         }
         
-        const error = new Error(errorMessage) as any;
+        const error = new Error(errorMessage) as ApiError;
         error.status = response.status;
         throw error;
       }
 
       // Para respuestas vacías (204 No Content)
       if (response.status === 204) {
-        return null;
+        return null as T;
       }
 
       return response.json();
@@ -51,26 +56,26 @@ class ApiClient {
     }
   }
 
-  async get(endpoint: string) {
-    return this.request(endpoint);
+  async get<T = any>(endpoint: string): Promise<T> {
+    return this.request<T>(endpoint);
   }
 
-  async post(endpoint: string, data: any) {
-    return this.request(endpoint, {
+  async post<T = any>(endpoint: string, data: any): Promise<T> {
+    return this.request<T>(endpoint, {
       method: 'POST',
       body: JSON.stringify(data),
     });
   }
 
-  async put(endpoint: string, data: any) {
-    return this.request(endpoint, {
+  async put<T = any>(endpoint: string, data: any): Promise<T> {
+    return this.request<T>(endpoint, {
       method: 'PUT',
       body: JSON.stringify(data),
     });
   }
 
-  async delete(endpoint: string) {
-    return this.request(endpoint, {
+  async delete<T = any>(endpoint: string): Promise<T> {
+    return this.request<T>(endpoint, {
       method: 'DELETE',
     });
   }
@@ -97,18 +102,34 @@ class ApiClient {
     return this.get(`/documents/${id}`);
   }
 
-  // NUEVO MÉTODO: Obtener estado del documento
+  // MÉTODO: Obtener estado del documento
   async getDocumentStatus(id: string) {
     return this.get(`/documents/${id}/status`);
   }
 
   async getDocumentMetrics() {
-    return this.get('/documents/metrics');
+    return this.get<{
+      stats: {
+        totalDocuments: number;
+        successRate: number;
+        timeSaved: number;
+        documentsByType: Array<{ type: string; count: number }>;
+      }
+    }>('/dashboard/metrics');
+  }
+
+  // Métodos para plantillas
+  async getTemplates() {
+    return this.get<{ templates: any[] }>('/templates');
+  }
+
+  async createTemplate(templateData: any) {
+    return this.post<{ template: any }>('/templates', templateData);
   }
 
   async uploadDocument(formData: FormData) {
     const url = `${API_BASE_URL}/documents/upload`;
-    const token = localStorage.getItem('token');
+    const token = this.token;
 
     const response = await fetch(url, {
       method: 'POST',
@@ -138,7 +159,7 @@ class ApiClient {
     return response.json();
   }
 
-    // NUEVOS MÉTODOS PARA PREFERENCIAS
+  // MÉTODOS PARA PREFERENCIAS
   async setUserPreferences(data: {
     useCase: string;
     customFields?: any[];
@@ -151,11 +172,8 @@ class ApiClient {
     return this.get('/preferences');
   }
 
-  async updateUserPreferences(data: {
-    useCase: string;
-    customFields?: any[];
-  }) {
-    return this.put('/preferences', data);
+  async updateUserPreferences(preferences: any) {
+    return this.put<{ user: any }>('/user/preferences', { preferences });
   }
 
   async getPredefinedTemplates() {
@@ -173,9 +191,42 @@ class ApiClient {
   async deleteCustomField(id: string) {
     return this.delete(`/preferences/custom-fields/${id}`);
   }
+
+  // Métodos de autenticación
+  async login(credentials: { email: string; password: string }) {
+    const result = await this.post<{ token: string; user: any }>('/auth/login', credentials);
+    if (result.token) {
+      this.setToken(result.token);
+    }
+    return result;
+  }
+
+  async register(userData: { name: string; email: string; password: string }) {
+    const result = await this.post<{ token: string; user: any }>('/auth/register', userData);
+    if (result.token) {
+      this.setToken(result.token);
+    }
+    return result;
+  }
+
+  async getCurrentUser() {
+    return this.get<{ user: any }>('/auth/me');
+  }
+
+  // Actualizar token cuando se loguea
+  setToken(token: string) {
+    this.token = token;
+    localStorage.setItem('token', token);
+  }
+
+  // Remover token al logout
+  removeToken() {
+    this.token = null;
+    localStorage.removeItem('token');
+  }
 }
 
-// CORRECCIÓN: Exportar la instancia de ApiClient para que sea utilizada
+// Exportar una instancia única de ApiClient
 export const apiClient = new ApiClient();
 
 // Función auxiliar para verificar si un error es de tipo ApiError

@@ -1,14 +1,15 @@
-// src/App.tsx - Agregar Onboarding a las rutas
+// src/App.tsx - CORREGIR IMPORTACIONES
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "@/hooks/useAuth";
+import { AuthProvider } from "@/contexts/AuthContext"; // CORREGIDO
+import { useAuth } from "@/hooks/useAuth";
 import ErrorBoundary from "@/components/ErrorBoundary";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
-import Onboarding from "./pages/Onboarding"; // NUEVA IMPORTACIÓN
+import Onboarding from "./pages/Onboarding";
 import Dashboard from "./pages/Dashboard";
 import Documents from "./pages/Documents";
 import DocumentDetail from "./pages/DocumentDetail";
@@ -51,7 +52,7 @@ const ProtectedRoute = ({ children }: { children: React.ReactNode }) => {
     return <Navigate to="/login" replace />;
   }
 
-  // NUEVA LÓGICA: Redirigir a onboarding si el usuario no tiene preferencias
+  // Redirigir a onboarding si el usuario no tiene preferencias
   if (!user.preferences && window.location.pathname !== '/onboarding') {
     return <Navigate to="/onboarding" replace />;
   }
@@ -109,7 +110,7 @@ const App = () => (
                 } 
               />
               
-              {/* NUEVA RUTA DE ONBOARDING */}
+              {/* RUTA DE ONBOARDING */}
               <Route 
                 path="/onboarding" 
                 element={

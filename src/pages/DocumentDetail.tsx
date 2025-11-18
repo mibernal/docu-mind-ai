@@ -1,4 +1,3 @@
-// src/pages/DocumentDetail.tsx - ARCHIVO NUEVO
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -7,17 +6,33 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Download, FileText, Calendar, Clock, User, Building, DollarSign, CheckCircle, AlertCircle, Zap } from "lucide-react";
+import { ArrowLeft, Download, FileText, Calendar, Clock, User, Building, DollarSign, CheckCircle, AlertCircle } from "lucide-react";
 import { Document } from "@/types";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 
+interface DisplayField {
+  name: string;
+  value: any;
+  description: string;
+  type: string;
+  required: boolean;
+  isPreferred: boolean;
+}
+
+interface UserField {
+  name: string;
+  description?: string;
+  type: string;
+  required: boolean;
+}
+
 export default function DocumentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const [document, setDocument] = useState<Document | null>(null);
+  const [currentDocument, setCurrentDocument] = useState<Document | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -26,7 +41,7 @@ export default function DocumentDetail() {
 
       try {
         const data = await apiClient.getDocument(id);
-        setDocument(data.document);
+        setCurrentDocument(data.document);
       } catch (error) {
         console.error("Failed to fetch document:", error);
         toast.error("Failed to load document");
@@ -49,20 +64,21 @@ export default function DocumentDetail() {
     return String(value);
   };
 
-  const getFieldsToDisplay = () => {
-    if (!document?.extractedData) return [];
+  const getFieldsToDisplay = (): DisplayField[] => {
+    if (!currentDocument?.extractedData) return [];
     
-    const extractedData = document.extractedData;
-    const userFields = user?.preferences?.customFields || [];
+    const extractedData = currentDocument.extractedData;
+    const userFields: UserField[] = user?.preferences?.customFields || [];
     
+    const fields: DisplayField[] = [];
+
     if (userFields.length > 0) {
-      const fields = [];
       for (const field of userFields) {
         if (extractedData[field.name] !== undefined) {
           fields.push({
             name: field.name,
             value: extractedData[field.name],
-            description: field.description,
+            description: field.description || '',
             type: field.type,
             required: field.required,
             isPreferred: true
@@ -125,7 +141,7 @@ export default function DocumentDetail() {
     );
   }
 
-  if (!document) {
+  if (!currentDocument) {
     return (
       <DashboardLayout>
         <div className="space-y-6 animate-in">
@@ -144,7 +160,7 @@ export default function DocumentDetail() {
   }
 
   const fieldsToDisplay = getFieldsToDisplay();
-  const hasExtractedData = document.extractedData && Object.keys(document.extractedData).length > 0;
+  const hasExtractedData = currentDocument.extractedData && Object.keys(currentDocument.extractedData).length > 0;
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -183,6 +199,21 @@ export default function DocumentDetail() {
     return FileText;
   };
 
+  const handleExportData = () => {
+    if (currentDocument?.extractedData) {
+      const dataStr = JSON.stringify(currentDocument.extractedData, null, 2);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const anchorElement = document.createElement('a');
+      anchorElement.href = url;
+      anchorElement.download = `${currentDocument.filename}-extracted-data.json`;
+      document.body.appendChild(anchorElement);
+      anchorElement.click();
+      document.body.removeChild(anchorElement);
+      URL.revokeObjectURL(url);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-in">
@@ -192,14 +223,14 @@ export default function DocumentDetail() {
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div className="flex-1 min-w-0">
-            <h1 className="text-3xl font-bold truncate">{document.filename}</h1>
+            <h1 className="text-3xl font-bold truncate">{currentDocument.filename}</h1>
             <p className="text-muted-foreground">
-              Uploaded on {new Date(document.uploadedAt).toLocaleDateString()}
+              Uploaded on {new Date(currentDocument.uploadedAt).toLocaleDateString()}
             </p>
           </div>
           <div className="flex gap-2">
             <Button variant="outline" size="sm" asChild>
-              <a href={document.fileUrl} target="_blank" rel="noopener noreferrer">
+              <a href={currentDocument.fileUrl} target="_blank" rel="noopener noreferrer">
                 <Download className="h-4 w-4 mr-2" />
                 Download
               </a>
@@ -214,9 +245,9 @@ export default function DocumentDetail() {
             <Card>
               <CardHeader className="pb-3">
                 <CardTitle className="flex items-center gap-2">
-                  {document.status === "completed" ? (
+                  {currentDocument.status === "completed" ? (
                     <CheckCircle className="h-5 w-5 text-green-600" />
-                  ) : document.status === "processing" ? (
+                  ) : currentDocument.status === "processing" ? (
                     <Clock className="h-5 w-5 text-yellow-600" />
                   ) : (
                     <AlertCircle className="h-5 w-5 text-red-600" />
@@ -224,9 +255,9 @@ export default function DocumentDetail() {
                   Processing Results
                 </CardTitle>
                 <CardDescription>
-                  {document.status === "completed" 
+                  {currentDocument.status === "completed" 
                     ? "Document processed successfully" 
-                    : document.status === "processing"
+                    : currentDocument.status === "processing"
                     ? "Document is being processed"
                     : "Document processing failed"
                   }
@@ -236,26 +267,26 @@ export default function DocumentDetail() {
                 <div className="grid grid-cols-2 gap-4 text-sm">
                   <div>
                     <span className="font-medium">Status:</span>
-                    <Badge className={`ml-2 ${getStatusColor(document.status)}`}>
-                      {document.status}
+                    <Badge className={`ml-2 ${getStatusColor(currentDocument.status)}`}>
+                      {currentDocument.status}
                     </Badge>
                   </div>
                   <div>
                     <span className="font-medium">Type:</span>
-                    <Badge className={`ml-2 ${getTypeColor(document.type)}`}>
-                      {document.type.replace('_', ' ')}
+                    <Badge className={`ml-2 ${getTypeColor(currentDocument.type)}`}>
+                      {currentDocument.type.replace('_', ' ')}
                     </Badge>
                   </div>
                   <div>
                     <span className="font-medium">Confidence:</span>
                     <span className="ml-2 font-medium">
-                      {document.confidence ? `${(document.confidence * 100).toFixed(1)}%` : 'N/A'}
+                      {currentDocument.confidence ? `${(currentDocument.confidence * 100).toFixed(1)}%` : 'N/A'}
                     </span>
                   </div>
                   <div>
                     <span className="font-medium">AI Engine:</span>
                     <span className="ml-2 font-medium capitalize">
-                      {document.processingEngine || 'N/A'}
+                      {currentDocument.processingEngine || 'N/A'}
                     </span>
                   </div>
                 </div>
@@ -355,7 +386,7 @@ export default function DocumentDetail() {
                     <FileText className="mx-auto h-12 w-12 text-muted-foreground" />
                     <h3 className="mt-4 text-lg font-semibold">No Data Extracted</h3>
                     <p className="text-muted-foreground mt-2">
-                      {document.status === "processing" 
+                      {currentDocument.status === "processing" 
                         ? "Document is still being processed. Please check back later." 
                         : "No data could be extracted from this document."
                       }
@@ -376,7 +407,7 @@ export default function DocumentDetail() {
                 </CardHeader>
                 <CardContent>
                   <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm max-h-96">
-                    {JSON.stringify(document.extractedData, null, 2)}
+                    {JSON.stringify(currentDocument.extractedData, null, 2)}
                   </pre>
                 </CardContent>
               </Card>
@@ -393,36 +424,36 @@ export default function DocumentDetail() {
                 <div className="space-y-3">
                   <div className="flex justify-between items-center">
                     <span className="text-sm font-medium">File Name</span>
-                    <span className="text-sm text-right truncate max-w-[200px]" title={document.filename}>
-                      {document.filename}
+                    <span className="text-sm text-right truncate max-w-[200px]" title={currentDocument.filename}>
+                      {currentDocument.filename}
                     </span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
                     <span className="text-sm font-medium">File Size</span>
                     <span className="text-sm">
-                      {document.fileSize ? `${(document.fileSize / 1024 / 1024).toFixed(2)} MB` : 'N/A'}
+                      {currentDocument.fileSize ? `${(currentDocument.fileSize / 1024 / 1024).toFixed(2)} MB` : 'N/A'}
                     </span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
                     <span className="text-sm font-medium">File Type</span>
-                    <span className="text-sm capitalize">{document.fileType || 'N/A'}</span>
+                    <span className="text-sm capitalize">{currentDocument.fileType || 'N/A'}</span>
                   </div>
                   <Separator />
                   <div className="flex justify-between">
                     <span className="text-sm font-medium">Uploaded</span>
                     <span className="text-sm">
-                      {new Date(document.uploadedAt).toLocaleDateString()}
+                      {new Date(currentDocument.uploadedAt).toLocaleDateString()}
                     </span>
                   </div>
-                  {document.processedAt && (
+                  {currentDocument.processedAt && (
                     <>
                       <Separator />
                       <div className="flex justify-between">
                         <span className="text-sm font-medium">Processed</span>
                         <span className="text-sm">
-                          {new Date(document.processedAt).toLocaleDateString()}
+                          {new Date(currentDocument.processedAt).toLocaleDateString()}
                         </span>
                       </div>
                     </>
@@ -438,25 +469,17 @@ export default function DocumentDetail() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <Button className="w-full" variant="outline" asChild>
-                  <a href={document.fileUrl} target="_blank" rel="noopener noreferrer">
+                  <a href={currentDocument.fileUrl} target="_blank" rel="noopener noreferrer">
                     <Download className="mr-2 h-4 w-4" />
                     Download Original
                   </a>
                 </Button>
-                <Button className="w-full" variant="outline" onClick={() => {
-                  if (document.extractedData) {
-                    const dataStr = JSON.stringify(document.extractedData, null, 2);
-                    const blob = new Blob([dataStr], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${document.filename}-extracted-data.json`;
-                    document.body.appendChild(a);
-                    a.click();
-                    document.body.removeChild(a);
-                    URL.revokeObjectURL(url);
-                  }
-                }} disabled={!document.extractedData}>
+                <Button 
+                  className="w-full" 
+                  variant="outline" 
+                  onClick={handleExportData}
+                  disabled={!currentDocument.extractedData}
+                >
                   <FileText className="mr-2 h-4 w-4" />
                   Export Data
                 </Button>
@@ -475,18 +498,18 @@ export default function DocumentDetail() {
               <CardContent className="space-y-3">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">AI Engine</span>
-                  <span className="font-medium capitalize">{document.processingEngine || 'Unknown'}</span>
+                  <span className="font-medium capitalize">{currentDocument.processingEngine || 'Unknown'}</span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Confidence Score</span>
                   <span className="font-medium">
-                    {document.confidence ? `${(document.confidence * 100).toFixed(1)}%` : 'N/A'}
+                    {currentDocument.confidence ? `${(currentDocument.confidence * 100).toFixed(1)}%` : 'N/A'}
                   </span>
                 </div>
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-muted-foreground">Document Type</span>
                   <span className="font-medium capitalize">
-                    {document.type.replace('_', ' ')}
+                    {currentDocument.type.replace('_', ' ')}
                   </span>
                 </div>
               </CardContent>

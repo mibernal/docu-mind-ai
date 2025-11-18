@@ -1,7 +1,6 @@
-// src/services/geminiProcessor.ts - CORREGIDO
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Configuración CORRECTA con la librería actual
+// Configuración con la librería actual
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'free-tier');
 
 interface ExtractionResult {
@@ -13,6 +12,21 @@ interface ExtractionResult {
 
 // Constante para SMMLV 2025
 const SMMLV_2025 = 1300000;
+
+// Definir tipos para las claves
+type DocumentType = 'CONTRACT_CERTIFICATION' | 'INVOICE' | 'RECEIPT' | 'CONTRACT' | 'LEGAL' | 'OTHER';
+
+interface SchemaDefinitions {
+  CONTRACT_CERTIFICATION: string;
+  INVOICE: string;
+  OTHER: string;
+}
+
+interface ExtractionFunctions {
+  CONTRACT_CERTIFICATION: () => any;
+  INVOICE: () => any;
+  OTHER: () => any;
+}
 
 export class GeminiProcessor {
   private availableModels = ['gemini-1.5-flash', 'gemini-1.5-pro'];
@@ -141,8 +155,8 @@ PERIODO: Enero 2025 - Julio 2025`
       const responseText = await this.makeGeminiRequest(prompt, this.availableModels[this.currentModelIndex]);
       const classification = responseText.trim().toUpperCase();
 
-      const validTypes = ['CONTRACT_CERTIFICATION', 'INVOICE', 'RECEIPT', 'CONTRACT', 'LEGAL', 'OTHER'];
-      return validTypes.includes(classification) ? classification : 'OTHER';
+      const validTypes: DocumentType[] = ['CONTRACT_CERTIFICATION', 'INVOICE', 'RECEIPT', 'CONTRACT', 'LEGAL', 'OTHER'];
+      return validTypes.includes(classification as DocumentType) ? classification : 'OTHER';
 
     } catch (error) {
       console.warn('Gemini classification failed, using keyword-based classification');
@@ -152,7 +166,7 @@ PERIODO: Enero 2025 - Julio 2025`
 
   private async extractWithGemini(text: string, documentType: string): Promise<Omit<ExtractionResult, 'processingEngine'>> {
     try {
-      const schemas = {
+      const schemas: SchemaDefinitions = {
         CONTRACT_CERTIFICATION: `{
           "cliente": "string",
           "contratista": "string", 
@@ -195,7 +209,7 @@ PERIODO: Enero 2025 - Julio 2025`
       const prompt = `
         Extrae información estructurada del siguiente documento de tipo ${documentType}.
         Responde EXCLUSIVAMENTE con JSON válido usando este esquema:
-        ${schemas[documentType] || schemas.OTHER}
+        ${schemas[documentType as keyof typeof schemas] || schemas.OTHER}
         
         Para documentos de tipo CONTRACT_CERTIFICATION, es CRÍTICO que extraigas:
         - cliente: nombre del cliente o contratante
@@ -330,7 +344,7 @@ PERIODO: Enero 2025 - Julio 2025`
   private fallbackExtraction(text: string, documentType: string): Omit<ExtractionResult, 'processingEngine'> {
     console.log('Using fallback extraction for:', documentType);
     
-    const extractors = {
+    const extractors: ExtractionFunctions = {
       CONTRACT_CERTIFICATION: () => {
         const baseValue = 380000000;
         const iva = baseValue * 0.19;
@@ -379,7 +393,7 @@ PERIODO: Enero 2025 - Julio 2025`
       })
     };
 
-    const extractor = extractors[documentType] || extractors.OTHER;
+    const extractor = (extractors as unknown as Record<string, () => any>)[documentType] || extractors.OTHER;
     
     return {
       extractedData: extractor(),

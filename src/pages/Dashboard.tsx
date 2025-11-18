@@ -1,4 +1,4 @@
-//src\pages\Dashboard.tsx
+// src/pages/Dashboard.tsx
 import { useEffect, useState } from "react";
 import { FileText, Clock, CheckCircle2, TrendingUp, Receipt, Scale, Settings } from "lucide-react";
 import { MetricCard } from "@/components/dashboard/MetricCard";
@@ -23,23 +23,64 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        const [metricsData, documentsData] = await Promise.all([
+        setIsLoading(true);
+        
+        // Usar Promise.allSettled para manejar errores individuales
+        const [metricsResult, documentsResult] = await Promise.allSettled([
           apiClient.getDocumentMetrics(),
           apiClient.getDocuments({ limit: 5 })
         ]);
 
+        let metricsData: any = null;
+        let documentsData: any = null;
+
+        // Procesar métricas
+        if (metricsResult.status === 'fulfilled') {
+          metricsData = metricsResult.value;
+        } else {
+          console.warn('Failed to fetch metrics:', metricsResult.reason);
+          // Usar datos por defecto si falla
+          metricsData = {
+            stats: {
+              totalDocuments: 0,
+              successRate: 0,
+              timeSaved: 0,
+              documentsByType: []
+            }
+          };
+        }
+
+        // Procesar documentos
+        if (documentsResult.status === 'fulfilled') {
+          documentsData = documentsResult.value;
+        } else {
+          console.warn('Failed to fetch documents:', documentsResult.reason);
+          documentsData = { documents: [] };
+        }
+
         setMetrics({
-          totalDocuments: metricsData.stats.totalDocuments,
-          successRate: metricsData.stats.successRate,
+          totalDocuments: metricsData.stats?.totalDocuments || 0,
+          successRate: metricsData.stats?.successRate || 0,
           averageProcessingTime: 2.3, // Mock por ahora
-          timeSaved: metricsData.stats.timeSaved,
-          documentsByType: metricsData.stats.documentsByType,
+          timeSaved: metricsData.stats?.timeSaved || 0,
+          documentsByType: metricsData.stats?.documentsByType || [],
         });
 
-        setRecentDocuments(documentsData.documents);
+        setRecentDocuments(documentsData.documents || []);
+        
       } catch (error) {
         console.error('Failed to fetch dashboard data:', error);
         toast.error("Failed to load dashboard data");
+        
+        // Establecer valores por defecto en caso de error
+        setMetrics({
+          totalDocuments: 0,
+          successRate: 0,
+          averageProcessingTime: 0,
+          timeSaved: 0,
+          documentsByType: [],
+        });
+        setRecentDocuments([]);
       } finally {
         setIsLoading(false);
       }
@@ -120,62 +161,70 @@ export default function Dashboard() {
               </Button>
             </CardHeader>
             <CardContent className="p-0">
-              <DocumentsTable documents={recentDocuments} isLoading={false} />
+              <DocumentsTable 
+                documents={recentDocuments} 
+                isLoading={false} 
+              />
             </CardContent>
           </Card>
 
-          <Card>
-  <CardHeader>
-    <CardTitle>Processing Preferences</CardTitle>
-  </CardHeader>
-  <CardContent>
-    <div className="flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className="p-2 rounded-lg bg-primary/10">
-          {user?.preferences?.useCase === 'CONTRACT_CERTIFICATION' && <FileText className="h-5 w-5 text-primary" />}
-          {user?.preferences?.useCase === 'INVOICE_PROCESSING' && <Receipt className="h-5 w-5 text-primary" />}
-          {user?.preferences?.useCase === 'LEGAL_DOCUMENTS' && <Scale className="h-5 w-5 text-primary" />}
-          {(!user?.preferences?.useCase || user.preferences.useCase === 'CUSTOM') && <Settings className="h-5 w-5 text-primary" />}
-        </div>
-        <div>
-          <p className="font-medium capitalize">
-            {user?.preferences?.useCase ? user.preferences.useCase.toLowerCase().replace(/_/g, ' ') : 'Custom Setup'}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {user?.preferences?.customFields?.length || 0} custom fields configured
-          </p>
-        </div>
-      </div>
-      <Button variant="outline" size="sm" onClick={() => navigate("/settings")}>
-        Manage
-      </Button>
-    </div>
-  </CardContent>
-</Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Documents by Type</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {metrics?.documentsByType?.map((item) => (
-                  <div key={item.type} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-primary" />
-                      <span className="text-sm capitalize">{item.type}</span>
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Processing Preferences</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="p-2 rounded-lg bg-primary/10">
+                      {user?.preferences?.useCase === 'CONTRACT_CERTIFICATION' && <FileText className="h-5 w-5 text-primary" />}
+                      {user?.preferences?.useCase === 'INVOICE_PROCESSING' && <Receipt className="h-5 w-5 text-primary" />}
+                      {user?.preferences?.useCase === 'LEGAL_DOCUMENTS' && <Scale className="h-5 w-5 text-primary" />}
+                      {(!user?.preferences?.useCase || user.preferences.useCase === 'CUSTOM') && <Settings className="h-5 w-5 text-primary" />}
                     </div>
-                    <span className="text-sm font-semibold">{item.count}</span>
+                    <div>
+                      <p className="font-medium capitalize">
+                        {user?.preferences?.useCase ? 
+                          user.preferences.useCase.toLowerCase().replace(/_/g, ' ') : 
+                          'Custom Setup'
+                        }
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {user?.preferences?.customFields?.length || 0} custom fields configured
+                      </p>
+                    </div>
                   </div>
-                ))}
-                {(!metrics?.documentsByType || metrics.documentsByType.length === 0) && (
-                  <p className="text-sm text-muted-foreground text-center py-4">
-                    No documents processed yet
-                  </p>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                  <Button variant="outline" size="sm" onClick={() => navigate("/settings")}>
+                    Manage
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Documents by Type</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {metrics?.documentsByType?.map((item) => (
+                    <div key={item.type} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-primary" />
+                        <span className="text-sm capitalize">{item.type}</span>
+                      </div>
+                      <span className="text-sm font-semibold">{item.count}</span>
+                    </div>
+                  ))}
+                  {(!metrics?.documentsByType || metrics.documentsByType.length === 0) && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      No documents processed yet
+                    </p>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
 
         <Card>

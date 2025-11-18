@@ -1,12 +1,16 @@
 server
 ├── .cspell.json
 ├── .env
+├── codigos_proyecto_exportados.txt
+├── codigos_proyecto.py
 ├── estructura.txt
 ├── package.json
 ├── prisma
 │   ├── dev.db
 │   ├── migrations
 │   │   ├── 20251105174211_add_processing_engine
+│   │   │   └── migration.sql
+│   │   ├── 20251114191426_add_user_preferences
 │   │   │   └── migration.sql
 │   │   └── migration_lock.toml
 │   ├── schema.prisma
@@ -15,6 +19,7 @@ server
 │   ├── controllers
 │   │   ├── auth.controller.ts
 │   │   ├── document.controller.ts
+│   │   ├── onboarding.controller.ts
 │   │   ├── template.controller.ts
 │   │   └── user.controller.ts
 │   ├── index.ts
@@ -28,15 +33,20 @@ server
 │   ├── routes
 │   │   ├── auth.routes.ts
 │   │   ├── document.routes.ts
+│   │   ├── preferences.routes.ts
 │   │   ├── template.routes.ts
 │   │   └── user.routes.ts
 │   ├── services
 │   │   ├── aiProcessor.ts
+│   │   ├── fallbackProcessor.ts
 │   │   ├── geminiProcessor.ts
+│   │   ├── personalizedProcessor.ts
+│   │   ├── templateService.ts
 │   │   └── unifiedAIProcessor.ts
 │   └── utils
 │       ├── json.ts
 │       ├── jwt.ts
+│       ├── logger.ts
 │       ├── password.ts
 │       └── validation.ts
 ├── tree.cjs
@@ -45,4 +55,13 @@ server
     ├── document-1762361408068-734992456.pdf
     ├── document-1762364055062-825039306.pdf
     ├── document-1762364108561-360437318.pdf
-    └── document-1762371759188-58938681.pdf
+    ├── document-1762371759188-58938681.pdf
+    ├── document-1762374243099-490801662.pdf
+    ├── document-1762374243263-463123142.pdf
+    ├── document-1762374243737-706404752.pdf
+    ├── document-1762375801622-552434500.pdf
+    ├── document-1763055499060-458240261.pdf
+    ├── document-1763064323422-812107432.pdf
+    ├── document-1763159104816-80145775.pdf
+    ├── document-1763221499042-213241867.pdf
+    └── document-1763223479515-204285869.pdf

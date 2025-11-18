@@ -1,4 +1,4 @@
-// src/types/index.ts - CORREGIR Y COMPLETAR
+// src/types/index.ts
 export interface User {
   id: string;
   email: string;
@@ -11,9 +11,14 @@ export interface User {
   };
   preferences?: {
     useCase: string;
-    customFields?: CustomField[];
+    customFields?: Array<{
+      id?: string;
+      name: string;
+      type: string;
+      required: boolean;
+      description?: string;
+    }>;
   };
-  customFields?: CustomField[];
 }
 
 export interface UserPreferences {
@@ -78,10 +83,10 @@ export interface DashboardMetrics {
   successRate: number;
   averageProcessingTime: number;
   timeSaved: number;
-  documentsByType: {
-    type: DocumentType;
+  documentsByType: Array<{
+    type: string;
     count: number;
-  }[];
+  }>;
 }
 
 export interface Template {
