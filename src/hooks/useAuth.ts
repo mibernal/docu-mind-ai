@@ -1,8 +1,7 @@
-﻿// src/hooks/useAuth.ts - VERSIÓN SIN JSX
+﻿// src/hooks/useAuth.ts - CORREGIDO
 import { useState, useEffect, createContext, useContext, ReactNode, useRef } from 'react';
 import { apiClient } from '../lib/api';
 import { User } from '../types';
-import React from 'react';
 
 interface AuthContextType {
   user: User | null;
@@ -92,11 +91,11 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     isLoading,
   };
 
-  // Usar React.createElement en lugar de JSX
-  return React.createElement(
-    AuthContext.Provider,
-    { value: value },
-    children
+  // CORRECCIÓN: Usar JSX directamente
+  return (
+    <AuthContext.Provider value={value}>
+      {children}
+    </AuthContext.Provider>
   );
 };
 

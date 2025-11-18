@@ -57,7 +57,6 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// REEMPLAZAR función processDocumentWithAI por processWithUserPreferences
 async function processWithUserPreferences(documentId: string, fileBuffer: Buffer, mimeType: string, filename: string, userId: string) {
   try {
     await prisma.document.update({
@@ -65,10 +64,19 @@ async function processWithUserPreferences(documentId: string, fileBuffer: Buffer
       data: { status: 'PROCESSING' },
     });
 
-    // CAMBIAR: Procesar con preferencias del usuario
+    console.log(`Starting personalized processing for document: ${documentId}`);
+
+    // Procesar con preferencias del usuario
     const result = await personalizedProcessor.processWithUserPreferences(
       fileBuffer, mimeType, filename, userId
     );
+
+    console.log(`Processing completed for document: ${documentId}`, {
+      documentType: result.documentType,
+      confidence: result.confidence,
+      engine: result.processingEngine,
+      fieldsMatched: result.userFieldsMatched
+    });
 
     // Update document status
     await prisma.document.update({
@@ -80,7 +88,7 @@ async function processWithUserPreferences(documentId: string, fileBuffer: Buffer
       },
     });
 
-    // Create processing record - incluir campos personalizados
+    // Create processing record
     await prisma.documentProcessing.create({
       data: {
         documentId: documentId,
@@ -88,7 +96,8 @@ async function processWithUserPreferences(documentId: string, fileBuffer: Buffer
           ...result.extractedData,
           _metadata: {
             userFieldsMatched: result.userFieldsMatched,
-            personalizedProcessing: true
+            personalizedProcessing: true,
+            processingTimestamp: new Date().toISOString()
           }
         }),
         confidence: result.confidence,
@@ -102,6 +111,7 @@ async function processWithUserPreferences(documentId: string, fileBuffer: Buffer
   } catch (error) {
     console.error('Personalized processing error:', error);
     
+    // MEJOR MANEJO DE ERRORES
     await prisma.document.update({
       where: { id: documentId },
       data: { 
@@ -113,10 +123,16 @@ async function processWithUserPreferences(documentId: string, fileBuffer: Buffer
     await prisma.documentProcessing.create({
       data: {
         documentId: documentId,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: error instanceof Error ? error.message : 'Unknown processing error',
         startedAt: new Date(),
         completedAt: new Date(),
       },
+    });
+
+    // Log detallado del error
+    console.error(`Failed to process document ${documentId}:`, {
+      error: error instanceof Error ? error.message : 'Unknown error',
+      stack: error instanceof Error ? error.stack : undefined
     });
   }
 }

@@ -1,9 +1,8 @@
-import { GoogleGenAI } from "@google/genai";
+// src/services/geminiProcessor.ts - CORREGIDO
+import { GoogleGenerativeAI } from "@google/generative-ai";
 
-// Configuración CORRECTA con la nueva librería
-const ai = new GoogleGenAI({
-  apiKey: process.env.GEMINI_API_KEY || 'free-tier',
-});
+// Configuración CORRECTA con la librería actual
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'free-tier');
 
 interface ExtractionResult {
   extractedData: Record<string, any>;
@@ -15,11 +14,8 @@ interface ExtractionResult {
 // Constante para SMMLV 2025
 const SMMLV_2025 = 1300000;
 
-// Definir tipos válidos para documentos
-type DocumentType = 'CONTRACT_CERTIFICATION' | 'INVOICE' | 'RECEIPT' | 'CONTRACT' | 'LEGAL' | 'OTHER';
-
 export class GeminiProcessor {
-  private availableModels = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+  private availableModels = ['gemini-1.5-flash', 'gemini-1.5-pro'];
   private currentModelIndex = 0;
 
   private async tryWithNextModel(): Promise<string> {
@@ -32,37 +28,10 @@ export class GeminiProcessor {
 
   private async extractTextWithOCR(fileBuffer: Buffer, mimeType: string): Promise<string> {
     console.log(`Processing ${mimeType} file with OCR simulation`);
-    return this.generateSimulatedText(mimeType, fileBuffer.toString('utf8').substring(0, 200));
+    return this.generateSimulatedText(mimeType);
   }
 
-  private generateSimulatedText(mimeType: string, fileStart?: string): string {
-    // Texto simulado mejorado para certificaciones
-    if (fileStart?.includes('CERTIFICACION') || fileStart?.includes('ABSICOL') || fileStart?.includes('SISTEMAS SOLARES')) {
-      return `CERTIFICACIÓN DE EXPERIENCIA LABORAL
-EMPRESA: ABSICOL SISTEMAS SOLARES S.A.S.
-NIT: 900.654.321-1
-CONTRATANTE: MUNICIPIO DE MEDELLÍN
-OBJETO: Instalación de sistemas solares fotovoltaicos en edificios públicos
-CONTRATO No: CT-2024-789-SOL
-VALOR CONTRATO: $380,000,000 COP
-IVA (19%): $72,200,000
-VALOR TOTAL: $452,200,000
-FECHA INICIO: 15 de Marzo de 2024
-FECHA FIN: 14 de Septiembre de 2024
-DURACIÓN: 6 meses
-
-ACTIVIDADES EJECUTADAS:
-- Instalación de 250 paneles solares
-- Sistema de inversores y baterías
-- Capacitación a personal municipal
-- Mantenimiento preventivo
-
-FIRMADO:
-Carlos Rodríguez
-Gerente General
-ABSICOL SISTEMAS SOLARES S.A.S.`;
-    }
-
+  private generateSimulatedText(mimeType: string): string {
     const contractCertifications = [
       `CERTIFICACIÓN DE CUMPLIMIENTO CONTRACTUAL
 CONTRATO No. CT-2025-456-ABC
@@ -97,17 +66,11 @@ PERIODO: Enero 2025 - Julio 2025`
     try {
       console.log(`Making Gemini request with model: ${modelName}`);
       
-      const response = await ai.models.generateContent({
-        model: modelName,
-        contents: prompt,
-      });
-
-      // CORRECCIÓN 1: Verificar que response.text existe
-      if (!response.text) {
-        throw new Error('No text received from Gemini API');
-      }
-
-      return response.text;
+      const model = genAI.getGenerativeModel({ model: modelName });
+      const result = await model.generateContent(prompt);
+      const response = await result.response;
+      
+      return response.text();
 
     } catch (error: any) {
       console.warn(`Model ${modelName} failed:`, error.message);
@@ -130,7 +93,7 @@ PERIODO: Enero 2025 - Julio 2025`
       const extractedText = await this.extractTextWithOCR(fileBuffer, mimeType);
       console.log(`Text extracted (${extractedText.length} chars)`);
 
-      let documentType: DocumentType;
+      let documentType: string;
       let extractionResult: Omit<ExtractionResult, 'processingEngine'>;
 
       try {
@@ -159,7 +122,7 @@ PERIODO: Enero 2025 - Julio 2025`
     }
   }
 
-  private async classifyWithGemini(text: string, filename: string): Promise<DocumentType> {
+  private async classifyWithGemini(text: string, filename: string): Promise<string> {
     try {
       const prompt = `
         Analiza el siguiente texto y nombre de archivo para clasificar el tipo de documento.
@@ -178,8 +141,8 @@ PERIODO: Enero 2025 - Julio 2025`
       const responseText = await this.makeGeminiRequest(prompt, this.availableModels[this.currentModelIndex]);
       const classification = responseText.trim().toUpperCase();
 
-      const validTypes: DocumentType[] = ['CONTRACT_CERTIFICATION', 'INVOICE', 'RECEIPT', 'CONTRACT', 'LEGAL', 'OTHER'];
-      return validTypes.includes(classification as DocumentType) ? classification as DocumentType : 'OTHER';
+      const validTypes = ['CONTRACT_CERTIFICATION', 'INVOICE', 'RECEIPT', 'CONTRACT', 'LEGAL', 'OTHER'];
+      return validTypes.includes(classification) ? classification : 'OTHER';
 
     } catch (error) {
       console.warn('Gemini classification failed, using keyword-based classification');
@@ -187,10 +150,9 @@ PERIODO: Enero 2025 - Julio 2025`
     }
   }
 
-  private async extractWithGemini(text: string, documentType: DocumentType): Promise<Omit<ExtractionResult, 'processingEngine'>> {
+  private async extractWithGemini(text: string, documentType: string): Promise<Omit<ExtractionResult, 'processingEngine'>> {
     try {
-      // CORRECCIÓN 2: Definir schemas con tipo seguro
-      const schemas: Record<DocumentType, string> = {
+      const schemas = {
         CONTRACT_CERTIFICATION: `{
           "cliente": "string",
           "contratista": "string", 
@@ -221,32 +183,6 @@ PERIODO: Enero 2025 - Julio 2025`
           "currency": "string"
         }`,
 
-        RECEIPT: `{
-          "receiptNumber": "string",
-          "date": "YYYY-MM-DD",
-          "amount": "number",
-          "currency": "string",
-          "payer": "string",
-          "receiver": "string"
-        }`,
-
-        CONTRACT: `{
-          "contractNumber": "string",
-          "parties": ["string"],
-          "effectiveDate": "YYYY-MM-DD",
-          "terminationDate": "YYYY-MM-DD",
-          "terms": "string",
-          "value": "number"
-        }`,
-
-        LEGAL: `{
-          "caseNumber": "string",
-          "court": "string",
-          "parties": ["string"],
-          "filingDate": "YYYY-MM-DD",
-          "type": "string"
-        }`,
-
         OTHER: `{
           "keyPoints": ["string"],
           "dates": ["YYYY-MM-DD"],
@@ -259,7 +195,7 @@ PERIODO: Enero 2025 - Julio 2025`
       const prompt = `
         Extrae información estructurada del siguiente documento de tipo ${documentType}.
         Responde EXCLUSIVAMENTE con JSON válido usando este esquema:
-        ${schemas[documentType]}
+        ${schemas[documentType] || schemas.OTHER}
         
         Para documentos de tipo CONTRACT_CERTIFICATION, es CRÍTICO que extraigas:
         - cliente: nombre del cliente o contratante
@@ -369,7 +305,7 @@ PERIODO: Enero 2025 - Julio 2025`
     return Math.min(0.95, baseConfidence);
   }
 
-  private keywordClassification(text: string, filename: string): DocumentType {
+  private keywordClassification(text: string, filename: string): string {
     const lowerText = text.toLowerCase();
     const lowerFilename = filename.toLowerCase();
 
@@ -391,13 +327,12 @@ PERIODO: Enero 2025 - Julio 2025`
     }
   }
 
-  private fallbackExtraction(text: string, documentType: DocumentType): Omit<ExtractionResult, 'processingEngine'> {
+  private fallbackExtraction(text: string, documentType: string): Omit<ExtractionResult, 'processingEngine'> {
     console.log('Using fallback extraction for:', documentType);
     
-    // CORRECCIÓN 3: Definir extractors con tipo seguro
-    const extractors: Record<DocumentType, () => Record<string, any>> = {
+    const extractors = {
       CONTRACT_CERTIFICATION: () => {
-        const baseValue = 380000000; // Basado en ABSICOL
+        const baseValue = 380000000;
         const iva = baseValue * 0.19;
         
         return {
@@ -435,32 +370,6 @@ PERIODO: Enero 2025 - Julio 2025`
         currency: 'COP'
       }),
 
-      RECEIPT: () => ({
-        receiptNumber: 'RC-' + Date.now(),
-        date: new Date().toISOString().split('T')[0],
-        amount: 0,
-        currency: 'COP',
-        payer: 'Payer Auto-Detected',
-        receiver: 'Receiver Auto-Detected'
-      }),
-
-      CONTRACT: () => ({
-        contractNumber: 'CT-' + Date.now(),
-        parties: ['Party 1', 'Party 2'],
-        effectiveDate: new Date().toISOString().split('T')[0],
-        terminationDate: new Date().toISOString().split('T')[0],
-        terms: 'Standard terms',
-        value: 0
-      }),
-
-      LEGAL: () => ({
-        caseNumber: 'CASE-' + Date.now(),
-        court: 'Court Auto-Detected',
-        parties: ['Plaintiff', 'Defendant'],
-        filingDate: new Date().toISOString().split('T')[0],
-        type: 'Legal Document'
-      }),
-
       OTHER: () => ({
         keyPoints: ['Documento procesado', 'Información extraída automáticamente'],
         dates: [new Date().toISOString().split('T')[0]],
@@ -470,7 +379,7 @@ PERIODO: Enero 2025 - Julio 2025`
       })
     };
 
-    const extractor = extractors[documentType];
+    const extractor = extractors[documentType] || extractors.OTHER;
     
     return {
       extractedData: extractor(),

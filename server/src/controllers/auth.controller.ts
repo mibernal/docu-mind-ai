@@ -4,7 +4,7 @@ import { prisma } from '../lib/db';
 import { hashPassword, verifyPassword } from '../utils/password';
 import { generateToken } from '../utils/jwt';
 import { AuthRequest } from '../middleware/auth.middleware';
-import { jsonToString } from '../utils/json';
+import { jsonToString } from '../utils/json'; // ← ESTA LÍNEA FALTA
 
 export const register = async (req: Request, res: Response) => {
   try {
