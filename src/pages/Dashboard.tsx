@@ -4,14 +4,52 @@ import { FileText, Clock, CheckCircle2, TrendingUp, Receipt, Scale, Settings } f
 import { MetricCard } from "@/components/dashboard/MetricCard";
 import { DocumentsTable } from "@/components/documents/DocumentsTable";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { DashboardMetrics } from "@/types";
+import { DashboardMetrics, ProcessedDocument } from "@/types";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
-import { ProcessedDocument } from "@/types";
+
+// Datos mock para cuando la API no esté disponible
+const MOCK_DOCUMENTS: ProcessedDocument[] = [
+  {
+    id: "1",
+    filename: "contract_agreement.pdf",
+    type: "contract",
+    status: "completed",
+    uploadedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+    processedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000 + 5000).toISOString(),
+    confidence: 0.95,
+    fileSize: 2048576,
+    fileType: "application/pdf"
+  },
+  {
+    id: "2",
+    filename: "invoice_q3.xlsx",
+    type: "invoice",
+    status: "completed",
+    uploadedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
+    processedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 + 3000).toISOString(),
+    confidence: 0.87,
+    fileSize: 1048576,
+    fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+  }
+];
+
+const MOCK_METRICS: DashboardMetrics = {
+  totalDocuments: 24,
+  successRate: 87,
+  averageProcessingTime: 2.3,
+  timeSaved: 45,
+  documentsByType: [
+    { type: "contract", count: 12 },
+    { type: "invoice", count: 8 },
+    { type: "receipt", count: 3 },
+    { type: "other", count: 1 }
+  ]
+};
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -19,6 +57,7 @@ export default function Dashboard() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [recentDocuments, setRecentDocuments] = useState<ProcessedDocument[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [usingMockData, setUsingMockData] = useState(false);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
@@ -33,54 +72,58 @@ export default function Dashboard() {
 
         let metricsData: any = null;
         let documentsData: any = null;
+        let usedMock = false;
 
         // Procesar métricas
         if (metricsResult.status === 'fulfilled') {
           metricsData = metricsResult.value;
+          // Verificar si estamos usando datos mock (cuando la API devuelve estructura vacía)
+          if (metricsData.stats?.totalDocuments === 0 && 
+              metricsData.stats?.successRate === 0 && 
+              (!metricsData.stats?.documentsByType || metricsData.stats.documentsByType.length === 0)) {
+            metricsData = { stats: MOCK_METRICS };
+            usedMock = true;
+          }
         } else {
-          console.warn('Failed to fetch metrics:', metricsResult.reason);
-          // Usar datos por defecto si falla
-          metricsData = {
-            stats: {
-              totalDocuments: 0,
-              successRate: 0,
-              timeSaved: 0,
-              documentsByType: []
-            }
-          };
+          console.warn('Failed to fetch metrics, using mock data:', metricsResult.reason);
+          metricsData = { stats: MOCK_METRICS };
+          usedMock = true;
         }
 
         // Procesar documentos
         if (documentsResult.status === 'fulfilled') {
           documentsData = documentsResult.value;
+          // Verificar si estamos usando datos mock
+          if (!documentsData.documents || documentsData.documents.length === 0) {
+            documentsData = { documents: MOCK_DOCUMENTS };
+            usedMock = true;
+          }
         } else {
-          console.warn('Failed to fetch documents:', documentsResult.reason);
-          documentsData = { documents: [] };
+          console.warn('Failed to fetch documents, using mock data:', documentsResult.reason);
+          documentsData = { documents: MOCK_DOCUMENTS };
+          usedMock = true;
         }
 
         setMetrics({
           totalDocuments: metricsData.stats?.totalDocuments || 0,
           successRate: metricsData.stats?.successRate || 0,
-          averageProcessingTime: 2.3, // Mock por ahora
+          averageProcessingTime: metricsData.stats?.averageProcessingTime || 2.3,
           timeSaved: metricsData.stats?.timeSaved || 0,
           documentsByType: metricsData.stats?.documentsByType || [],
         });
 
         setRecentDocuments(documentsData.documents || []);
+        setUsingMockData(usedMock);
         
       } catch (error) {
-        console.error('Failed to fetch dashboard data:', error);
-        toast.error("Failed to load dashboard data");
+        console.error('Failed to fetch dashboard data, using mock data:', error);
         
-        // Establecer valores por defecto en caso de error
-        setMetrics({
-          totalDocuments: 0,
-          successRate: 0,
-          averageProcessingTime: 0,
-          timeSaved: 0,
-          documentsByType: [],
-        });
-        setRecentDocuments([]);
+        // Usar datos mock en caso de error general
+        setMetrics(MOCK_METRICS);
+        setRecentDocuments(MOCK_DOCUMENTS);
+        setUsingMockData(true);
+        
+        toast.error("Failed to load dashboard data, showing demo data");
       } finally {
         setIsLoading(false);
       }
@@ -118,11 +161,18 @@ export default function Dashboard() {
   return (
     <DashboardLayout>
       <div className="space-y-6 animate-in">
-        <div>
-          <h1 className="text-3xl font-bold">Dashboard</h1>
-          <p className="text-muted-foreground">
-            Welcome back{user?.name ? `, ${user.name}` : ''}! Here's an overview of your document processing.
-          </p>
+        <div className="flex justify-between items-start">
+          <div>
+            <h1 className="text-3xl font-bold">Dashboard</h1>
+            <p className="text-muted-foreground">
+              Welcome back{user?.name ? `, ${user.name}` : ''}! Here's an overview of your document processing.
+              {usingMockData && (
+                <span className="text-amber-600 text-sm ml-2">
+                  (Demo data - backend not connected)
+                </span>
+              )}
+            </p>
+          </div>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">

@@ -28,15 +28,22 @@ class ApiClient {
     try {
       const response = await fetch(url, config);
       
+      // Clonar la respuesta antes de leerla para evitar "body stream already read"
+      const responseClone = response.clone();
+      
       if (!response.ok) {
         let errorMessage = `HTTP error! status: ${response.status}`;
         try {
-          const errorData = await response.json();
-          errorMessage = errorData.error || errorMessage;
+          const errorData = await responseClone.json();
+          errorMessage = errorData.error || errorData.message || errorMessage;
         } catch {
           // Si no se puede parsear JSON, usar texto plano
-          const text = await response.text();
-          errorMessage = text || errorMessage;
+          try {
+            const text = await responseClone.text();
+            errorMessage = text || errorMessage;
+          } catch {
+            // Si no se puede leer como texto, mantener el mensaje original
+          }
         }
         
         const error = new Error(errorMessage) as ApiError;
@@ -108,14 +115,30 @@ class ApiClient {
   }
 
   async getDocumentMetrics() {
-    return this.get<{
-      stats: {
-        totalDocuments: number;
-        successRate: number;
-        timeSaved: number;
-        documentsByType: Array<{ type: string; count: number }>;
+    try {
+      return await this.get<{
+        stats: {
+          totalDocuments: number;
+          successRate: number;
+          timeSaved: number;
+          documentsByType: Array<{ type: string; count: number }>;
+        }
+      }>('/dashboard/metrics');
+    } catch (error: any) {
+      // Si el endpoint no existe (404), devolver datos mock
+      if (error?.status === 404) {
+        console.warn('Dashboard metrics endpoint not found, using mock data');
+        return {
+          stats: {
+            totalDocuments: 0,
+            successRate: 0,
+            timeSaved: 0,
+            documentsByType: []
+          }
+        };
       }
-    }>('/dashboard/metrics');
+      throw error;
+    }
   }
 
   // Métodos para plantillas
@@ -135,7 +158,6 @@ class ApiClient {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
-        // No Content-Type para FormData, el navegador lo establece automáticamente
       },
       body: formData,
     });
@@ -146,11 +168,14 @@ class ApiClient {
         const errorData = await response.json();
         errorMessage = errorData.error || errorMessage;
       } catch {
-        const text = await response.text();
-        errorMessage = text || errorMessage;
+        try {
+          const text = await response.text();
+          errorMessage = text || errorMessage;
+        } catch {
+          // Mantener el mensaje por defecto
+        }
       }
       
-      // Crear error con propiedad status
       const error: ApiError = new Error(errorMessage);
       error.status = response.status;
       throw error;

@@ -9,21 +9,13 @@ export interface User {
     id: string;
     name: string;
   };
-  preferences?: {
-    useCase: string;
-    customFields?: Array<{
-      id?: string;
-      name: string;
-      type: string;
-      required: boolean;
-      description?: string;
-    }>;
-  };
+  preferences?: UserPreferences;
 }
 
 export interface UserPreferences {
   useCase: 'CONTRACT_CERTIFICATION' | 'INVOICE_PROCESSING' | 'LEGAL_DOCUMENTS' | 'CUSTOM';
   customFields?: CustomField[];
+  documentTypes?: string[];
 }
 
 export interface CustomField {
