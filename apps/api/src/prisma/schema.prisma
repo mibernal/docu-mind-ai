@@ -4,7 +4,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  adapter  = "better-sqlite3"
+  url      = env("DATABASE_URL")
 }
 
 // ENUMS
