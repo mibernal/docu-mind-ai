@@ -1,9 +1,10 @@
-import { prisma } from "../../shared/db";
-import { jsonToString, stringToJson } from "../../shared/json";
+import { prisma } from "../../shared/db.js";
+import { jsonToString, stringToJson } from "../../shared/json.js";
 import fs from 'fs';
 import path from 'path';
 // Cambiar de unifiedAIProcessor a personalizedProcessor
-import { personalizedProcessor } from "./personalizedProcessor";
+import { personalizedProcessor } from "./personalizedProcessor.js";
+import { DocumentType, DocumentStatus } from '@prisma/client'; // IMPORT AGREGADO
 export const uploadDocument = async (req, res) => {
     try {
         if (!req.user) {
@@ -25,8 +26,8 @@ export const uploadDocument = async (req, res) => {
                 fileUrl: `/uploads/${filename}`,
                 fileSize: size,
                 fileType: mimetype,
-                documentType: 'OTHER',
-                status: 'PENDING',
+                documentType: DocumentType.OTHER, // CORREGIDO: usar enum
+                status: DocumentStatus.PENDING, // CORREGIDO: usar enum
                 userId: req.user.userId,
                 organizationId: req.user.organizationId,
             },
@@ -50,7 +51,7 @@ async function processWithUserPreferences(documentId, fileBuffer, mimeType, file
     try {
         await prisma.document.update({
             where: { id: documentId },
-            data: { status: 'PROCESSING' },
+            data: { status: DocumentStatus.PROCESSING }, // CORREGIDO
         });
         console.log(`Starting personalized processing for document: ${documentId}`);
         // Procesar con preferencias del usuario
@@ -61,12 +62,26 @@ async function processWithUserPreferences(documentId, fileBuffer, mimeType, file
             engine: result.processingEngine,
             fieldsMatched: result.userFieldsMatched
         });
+        // VALIDAR Y CONVERTIR documentType
+        const documentTypeMap = {
+            'invoice': DocumentType.INVOICE,
+            'receipt': DocumentType.RECEIPT,
+            'contract': DocumentType.CONTRACT,
+            'contract_certification': DocumentType.CONTRACT_CERTIFICATION,
+            'other': DocumentType.OTHER,
+            'INVOICE': DocumentType.INVOICE,
+            'RECEIPT': DocumentType.RECEIPT,
+            'CONTRACT': DocumentType.CONTRACT,
+            'CONTRACT_CERTIFICATION': DocumentType.CONTRACT_CERTIFICATION,
+            'OTHER': DocumentType.OTHER,
+        };
+        const validDocumentType = documentTypeMap[result.documentType] || DocumentType.OTHER;
         // Update document status
         await prisma.document.update({
             where: { id: documentId },
             data: {
-                status: 'COMPLETED',
-                documentType: result.documentType,
+                status: DocumentStatus.COMPLETED, // CORREGIDO
+                documentType: validDocumentType, // USAR VALOR VALIDADO
                 processedAt: new Date(),
             },
         });
@@ -96,7 +111,7 @@ async function processWithUserPreferences(documentId, fileBuffer, mimeType, file
         await prisma.document.update({
             where: { id: documentId },
             data: {
-                status: 'FAILED',
+                status: DocumentStatus.FAILED, // CORREGIDO
                 processedAt: new Date(),
             },
         });
@@ -115,7 +130,6 @@ async function processWithUserPreferences(documentId, fileBuffer, mimeType, file
         });
     }
 }
-// Las demás funciones (getDocuments, getDocument, getDocumentMetrics, getDocumentStatus) se mantienen igual
 export const getDocuments = async (req, res) => {
     try {
         const { page = '1', limit = '10', type, status, search } = req.query;
@@ -124,10 +138,18 @@ export const getDocuments = async (req, res) => {
             userId: req.user?.userId,
         };
         if (type && type !== 'all') {
-            where.documentType = type.toUpperCase();
+            // Convertir string a enum value
+            const typeUpper = type.toUpperCase();
+            if (Object.values(DocumentType).includes(typeUpper)) {
+                where.documentType = typeUpper;
+            }
         }
         if (status && status !== 'all') {
-            where.status = status.toUpperCase();
+            // Convertir string a enum value
+            const statusUpper = status.toUpperCase();
+            if (Object.values(DocumentStatus).includes(statusUpper)) {
+                where.status = statusUpper;
+            }
         }
         if (search) {
             where.filename = {
@@ -222,13 +244,13 @@ export const getDocumentMetrics = async (req, res) => {
             prisma.document.count({
                 where: {
                     userId,
-                    status: 'COMPLETED'
+                    status: DocumentStatus.COMPLETED // CORREGIDO
                 }
             }),
             prisma.document.count({
                 where: {
                     userId,
-                    status: 'FAILED'
+                    status: DocumentStatus.FAILED // CORREGIDO
                 }
             }),
             prisma.document.groupBy({

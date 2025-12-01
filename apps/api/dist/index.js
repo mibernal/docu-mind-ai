@@ -1,13 +1,16 @@
+// apps/api/src/index.ts
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-// Import routes from modules
-import authRoutes from './modules/auth/auth.routes';
-import userRoutes from './modules/users/user.routes';
-import documentRoutes from './modules/documents/document.routes';
-import preferenceRoutes from './modules/users/preferences.routes';
+import { testConnection, prisma } from './shared/db.js';
+import { logger } from './shared/logger.js';
+// Import routes
+import authRoutes from './modules/auth/auth.routes.js';
+import userRoutes from './modules/users/user.routes.js';
+import documentRoutes from './modules/documents/document.routes.js';
+import preferenceRoutes from './modules/users/preferences.routes.js';
 // Import middleware
-import { apiLimiter, authLimiter } from './core/middleware/rateLimit.middleware';
+import { apiLimiter, authLimiter } from './core/middleware/rateLimit.middleware.js';
 const app = express();
 const PORT = process.env.PORT || 3001;
 // Middleware
@@ -31,7 +34,8 @@ app.get('/api/health', (req, res) => {
     res.status(200).json({
         status: 'OK',
         message: 'DocuMind AI API is running',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        database: prisma ? 'connected' : 'disconnected'
     });
 });
 // 404 handler
@@ -40,11 +44,42 @@ app.use('*', (req, res) => {
 });
 // Error handler
 app.use((error, req, res, next) => {
-    console.error('Error:', error);
-    res.status(500).json({ error: 'Internal server error' });
+    logger.error('Server Error:', error);
+    res.status(500).json({
+        error: 'Internal server error',
+        message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
+    });
 });
-app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`📚 API Documentation: http://localhost:${PORT}/api/health`);
+// Inicialización del servidor
+async function startServer() {
+    try {
+        // Probar conexión a la base de datos
+        logger.info('🚀 Iniciando DocuMind AI API...');
+        const dbConnected = await testConnection();
+        if (!dbConnected) {
+            throw new Error('No se pudo conectar a la base de datos');
+        }
+        app.listen(PORT, () => {
+            logger.info(`✅ Servidor ejecutándose en http://localhost:${PORT}`);
+            logger.info(`📊 Prisma Studio: http://localhost:5555`);
+            logger.info(`🌐 Cliente: ${process.env.CLIENT_URL || 'http://localhost:5173'}`);
+        });
+    }
+    catch (error) {
+        logger.error('❌ Error al iniciar el servidor:', error);
+        process.exit(1);
+    }
+}
+// Manejo de cierre limpio
+process.on('SIGINT', async () => {
+    logger.info('🛑 Apagando servidor...');
+    await prisma.$disconnect();
+    process.exit(0);
 });
+process.on('SIGTERM', async () => {
+    logger.info('🛑 Terminando servidor...');
+    await prisma.$disconnect();
+    process.exit(0);
+});
+startServer();
 export default app;

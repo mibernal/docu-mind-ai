@@ -203,7 +203,19 @@ export declare class TemplateService {
      * Crea una plantilla de usuario en la BD a partir de las preferencias (useCase).
      * Nota: `fields` en tu schema.prisma es String, por eso serializamos con jsonToString.
      */
-    createUserTemplateFromPreferences(userId: string, useCase: string, organizationId: string): Promise<any>;
+    createUserTemplateFromPreferences(userId: string, useCase: string, organizationId: string): Promise<{
+        id: string;
+        name: string;
+        description: string | null;
+        fields: string;
+        sampleData: string | null;
+        isDefault: boolean;
+        category: string;
+        createdAt: Date;
+        updatedAt: Date;
+        organizationId: string;
+        userId: string | null;
+    }>;
 }
 /** instancia exportada */
 export declare const templateService: TemplateService;

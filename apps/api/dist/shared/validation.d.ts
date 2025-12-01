@@ -26,17 +26,17 @@ export declare const updateProfileSchema: z.ZodEffects<z.ZodObject<{
     name: z.ZodOptional<z.ZodString>;
     email: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
-    email?: string | undefined;
     name?: string | undefined;
+    email?: string | undefined;
 }, {
-    email?: string | undefined;
     name?: string | undefined;
+    email?: string | undefined;
 }>, {
-    email?: string | undefined;
     name?: string | undefined;
+    email?: string | undefined;
 }, {
-    email?: string | undefined;
     name?: string | undefined;
+    email?: string | undefined;
 }>;
 export declare const onboardingSchema: z.ZodObject<{
     useCase: z.ZodEnum<["CONTRACT_CERTIFICATION", "INVOICE_PROCESSING", "LEGAL_DOCUMENTS", "CUSTOM"]>;
@@ -53,8 +53,8 @@ export declare const onboardingSchema: z.ZodObject<{
     }, {
         name: string;
         type: "number" | "boolean" | "text" | "date" | "currency" | "percentage";
-        required?: boolean | undefined;
         description?: string | undefined;
+        required?: boolean | undefined;
     }>, "many">>;
     documentTypes: z.ZodOptional<z.ZodArray<z.ZodString, "many">>;
 }, "strip", z.ZodTypeAny, {
@@ -71,8 +71,8 @@ export declare const onboardingSchema: z.ZodObject<{
     customFields?: {
         name: string;
         type: "number" | "boolean" | "text" | "date" | "currency" | "percentage";
-        required?: boolean | undefined;
         description?: string | undefined;
+        required?: boolean | undefined;
     }[] | undefined;
     documentTypes?: string[] | undefined;
 }>;
@@ -124,18 +124,18 @@ export declare const customFieldSchema: z.ZodObject<{
 }, {
     name: string;
     type: "number" | "boolean" | "text" | "date" | "currency" | "percentage";
-    required?: boolean | undefined;
     description?: string | undefined;
+    required?: boolean | undefined;
 }>;
 export declare const documentUploadSchema: z.ZodObject<{
     documentType: z.ZodOptional<z.ZodEnum<["CONTRACT_CERTIFICATION", "INVOICE", "RECEIPT", "LEGAL", "OTHER"]>>;
     templateId: z.ZodOptional<z.ZodString>;
 }, "strip", z.ZodTypeAny, {
+    documentType?: "CONTRACT_CERTIFICATION" | "INVOICE" | "RECEIPT" | "OTHER" | "LEGAL" | undefined;
     templateId?: string | undefined;
-    documentType?: "CONTRACT_CERTIFICATION" | "INVOICE" | "RECEIPT" | "LEGAL" | "OTHER" | undefined;
 }, {
+    documentType?: "CONTRACT_CERTIFICATION" | "INVOICE" | "RECEIPT" | "OTHER" | "LEGAL" | undefined;
     templateId?: string | undefined;
-    documentType?: "CONTRACT_CERTIFICATION" | "INVOICE" | "RECEIPT" | "LEGAL" | "OTHER" | undefined;
 }>;
 export declare const certificationSchema: z.ZodObject<{
     cliente: z.ZodString;

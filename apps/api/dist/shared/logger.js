@@ -1,17 +1,17 @@
-// src/utils/logger.ts
-export class Logger {
-    static info(message, data) {
+// apps/api/src/shared/logger.ts
+export const logger = {
+    info: (message, data) => {
         console.log(`[INFO] ${new Date().toISOString()}: ${message}`, data || '');
-    }
-    static error(message, error) {
+    },
+    error: (message, error) => {
         console.error(`[ERROR] ${new Date().toISOString()}: ${message}`, error || '');
-    }
-    static warn(message, data) {
+    },
+    warn: (message, data) => {
         console.warn(`[WARN] ${new Date().toISOString()}: ${message}`, data || '');
-    }
-    static debug(message, data) {
+    },
+    debug: (message, data) => {
         if (process.env.NODE_ENV === 'development') {
             console.debug(`[DEBUG] ${new Date().toISOString()}: ${message}`, data || '');
         }
     }
-}
+};

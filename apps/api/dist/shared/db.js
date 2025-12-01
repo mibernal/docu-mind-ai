@@ -1,26 +1,52 @@
 // apps/api/src/shared/db.ts
 import { PrismaClient } from '@prisma/client';
-const createPrismaClient = () => {
-    console.log('Creating new Prisma client...');
+import { logger } from './logger.js'; // CORREGIDO: .js extension for ES modules
+// Singleton pattern para Prisma Client
+const globalForPrisma = globalThis;
+// Crear instancia con configuración específica
+function createPrismaClient() {
+    logger.info('🔧 Creando cliente de Prisma...');
     return new PrismaClient({
-        log: ['query', 'error', 'warn'],
+        log: process.env.NODE_ENV === 'development'
+            ? ['query', 'info', 'warn', 'error']
+            : ['error'],
     });
-};
-export const prisma = global.prisma ?? createPrismaClient();
+}
+// Exportar la instancia única
+export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+// Guardar en global para desarrollo
 if (process.env.NODE_ENV !== 'production') {
-    global.prisma = prisma;
+    globalForPrisma.prisma = prisma;
 }
-/**
- * Función útil para verificar la conexión (uso en scripts o health-checks)
- */
-export async function testConnection() {
-    try {
-        await prisma.$connect();
-        console.log('✅ Conectado a la base de datos correctamente');
-        return true;
+// Función para probar conexión con reintentos
+export async function testConnection(maxRetries = 3) {
+    let retries = 0;
+    while (retries < maxRetries) {
+        try {
+            logger.info(`Intentando conectar a la base de datos (intento ${retries + 1}/${maxRetries})...`);
+            await prisma.$connect();
+            // Verificar conexión con una consulta simple
+            await prisma.$queryRaw `SELECT 1 as connection_test`;
+            logger.info('✅ Conexión a la base de datos establecida correctamente');
+            return true;
+        }
+        catch (error) {
+            retries++;
+            logger.error(`❌ Error de conexión (intento ${retries}/${maxRetries}):`, error);
+            if (retries < maxRetries) {
+                logger.info(`Esperando 2 segundos antes de reintentar...`);
+                await new Promise(resolve => setTimeout(resolve, 2000));
+            }
+            else {
+                logger.error('❌ No se pudo establecer conexión después de todos los intentos');
+                return false;
+            }
+        }
     }
-    catch (error) {
-        console.error('❌ Error conectando a la base de datos:', error);
-        return false;
-    }
+    return false;
 }
+// Manejo de cierre limpio
+process.on('beforeExit', async () => {
+    logger.info('Cerrando conexión de Prisma...');
+    await prisma.$disconnect();
+});

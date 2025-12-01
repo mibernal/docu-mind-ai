@@ -1,6 +1,5 @@
-import { Response } from 'express';
-import { AuthRequest } from '../middleware/auth.middleware';
-export declare const createTemplate: (req: AuthRequest, res: Response) => Promise<void>;
-export declare const getTemplates: (req: AuthRequest, res: Response) => Promise<void>;
-export declare const updateTemplate: (req: AuthRequest, res: Response) => Promise<void>;
-export declare const deleteTemplate: (req: AuthRequest, res: Response) => Promise<void>;
+import { Request, Response } from 'express';
+export declare const createTemplate: (req: Request, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const getTemplates: (req: Request, res: Response) => Promise<void>;
+export declare const updateTemplate: (req: Request, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const deleteTemplate: (req: Request, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;

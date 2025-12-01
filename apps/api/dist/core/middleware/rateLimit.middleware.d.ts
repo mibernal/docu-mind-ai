@@ -1,4 +1,4 @@
-export declare const apiLimiter: any;
-export declare const authLimiter: any;
-export declare const uploadLimiter: any;
-export declare const createCustomLimiter: (windowMs: number, max: number, message: string) => any;
+export declare const apiLimiter: import("express-rate-limit").RateLimitRequestHandler;
+export declare const authLimiter: import("express-rate-limit").RateLimitRequestHandler;
+export declare const uploadLimiter: import("express-rate-limit").RateLimitRequestHandler;
+export declare const createCustomLimiter: (windowMs: number, max: number, message: string) => import("express-rate-limit").RateLimitRequestHandler;

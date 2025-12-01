@@ -1,86 +1,90 @@
-import { prisma } from "../../shared/db";
-import { jsonToString, stringToJson } from "../utils/json";
+import { prisma } from '../../shared/db.js';
 export const createTemplate = async (req, res) => {
     try {
-        const { name, description, fields } = req.body;
+        const { name, description, fields, sampleData, category, isDefault } = req.body;
+        const userId = req.user?.userId;
+        const organizationId = req.user?.organizationId;
+        if (!userId || !organizationId) {
+            return res.status(401).json({ error: 'Unauthorized' });
+        }
         const template = await prisma.extractionTemplate.create({
             data: {
                 name,
                 description,
-                fields: jsonToString(fields) || '{}',
-                organizationId: req.user.organizationId,
+                fields,
+                sampleData,
+                category: category || 'general',
+                isDefault: isDefault || false,
+                userId,
+                organizationId,
             },
         });
-        res.status(201).json({
-            template: {
-                ...template,
-                fields: stringToJson(template.fields),
-            },
-        });
+        res.status(201).json(template);
     }
     catch (error) {
         console.error('Create template error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Failed to create template' });
     }
 };
 export const getTemplates = async (req, res) => {
     try {
+        const userId = req.user?.userId;
+        const organizationId = req.user?.organizationId;
         const templates = await prisma.extractionTemplate.findMany({
             where: {
-                organizationId: req.user.organizationId,
+                OR: [
+                    { userId },
+                    { organizationId, isDefault: true },
+                ],
             },
+            orderBy: { createdAt: 'desc' },
         });
-        const formattedTemplates = templates.map(template => ({
-            ...template,
-            fields: stringToJson(template.fields),
-        }));
-        res.json({ templates: formattedTemplates });
+        res.json(templates);
     }
     catch (error) {
         console.error('Get templates error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Failed to get templates' });
     }
 };
 export const updateTemplate = async (req, res) => {
     try {
         const { id } = req.params;
-        const { name, description, fields } = req.body;
-        const template = await prisma.extractionTemplate.update({
-            where: {
-                id,
-                organizationId: req.user.organizationId,
-            },
-            data: {
-                ...(name && { name }),
-                ...(description && { description }),
-                ...(fields && { fields: jsonToString(fields) || '{}' }),
-            },
+        const updates = req.body;
+        const userId = req.user?.userId;
+        const template = await prisma.extractionTemplate.findFirst({
+            where: { id, userId },
         });
-        res.json({
-            template: {
-                ...template,
-                fields: stringToJson(template.fields),
-            },
+        if (!template) {
+            return res.status(404).json({ error: 'Template not found' });
+        }
+        const updated = await prisma.extractionTemplate.update({
+            where: { id },
+            data: updates,
         });
+        res.json(updated);
     }
     catch (error) {
         console.error('Update template error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Failed to update template' });
     }
 };
 export const deleteTemplate = async (req, res) => {
     try {
         const { id } = req.params;
-        await prisma.extractionTemplate.delete({
-            where: {
-                id,
-                organizationId: req.user.organizationId,
-            },
+        const userId = req.user?.userId;
+        const template = await prisma.extractionTemplate.findFirst({
+            where: { id, userId },
         });
-        res.json({ message: 'Template deleted successfully' });
+        if (!template) {
+            return res.status(404).json({ error: 'Template not found' });
+        }
+        await prisma.extractionTemplate.delete({
+            where: { id },
+        });
+        res.status(204).send();
     }
     catch (error) {
         console.error('Delete template error:', error);
-        res.status(500).json({ error: 'Internal server error' });
+        res.status(500).json({ error: 'Failed to delete template' });
     }
 };
