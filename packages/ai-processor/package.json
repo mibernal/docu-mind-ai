@@ -1,0 +1,19 @@
+{
+  "name": "ai-processor",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "shared": "file:../shared"
+  },
+  "devDependencies": {
+    "typescript": "^5.2.2"
+  }
+}
