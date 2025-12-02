@@ -1,4 +1,4 @@
-// server/src/controllers/auth.controller.ts - VERSIÓN CORREGIDA
+// apps\api\src\modules\auth\auth.controller.ts
 import { Request, Response } from 'express';
 import { prisma } from "../../shared/db";
 import { hashPassword, verifyPassword } from "../../shared/password";

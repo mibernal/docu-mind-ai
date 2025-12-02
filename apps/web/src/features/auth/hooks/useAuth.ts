@@ -1,3 +1,4 @@
+//apps\web\src\features\auth\hooks\useAuth.ts
 import { useContext } from 'react';
 import { AuthContext, AuthContextType } from "../../../contexts/AuthContext";
 

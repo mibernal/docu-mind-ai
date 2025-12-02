@@ -1,6 +1,13 @@
-import React, { createContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
+import React, {
+  createContext,
+  useState,
+  useEffect,
+  useCallback,
+  ReactNode,
+  useRef,
+} from 'react';
 import apiClient, { setAuthToken } from '@/lib/api';
-import { User } from "../types";
+import { User } from '../types';
 
 export interface AuthContextType {
   user: User | null;
@@ -11,7 +18,9 @@ export interface AuthContextType {
   isLoading: boolean;
 }
 
-export const AuthContext = createContext<AuthContextType | undefined>(undefined);
+export const AuthContext = createContext<AuthContextType | undefined>(
+  undefined
+);
 
 interface AuthProviderProps {
   children: ReactNode;
@@ -19,9 +28,16 @@ interface AuthProviderProps {
 
 export const AuthProvider = ({ children }: AuthProviderProps) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [token, setTokenState] = useState<string | null>(
+    localStorage.getItem('token')
+  );
   const [isLoading, setIsLoading] = useState(true);
   const hasFetchedUser = useRef(false);
+
+  // 🔥 aplicar token al cargar
+  useEffect(() => {
+    setAuthToken(token || undefined);
+  }, [token]);
 
   useEffect(() => {
     if (token && !hasFetchedUser.current) {
@@ -36,22 +52,16 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       setIsLoading(true);
       const response = await apiClient.get('/auth/me');
-      
-      // VERIFICAR LA ESTRUCTURA DE LA RESPUESTA
-      if (response && response.user) {
+
+      if (response?.user) {
         setUser(response.user);
-      } else if (response && response.data) {
-        // Si la API usa response.data
-        setUser(response.data.user || response.data);
       } else {
-        console.error('Estructura de respuesta inesperada:', response);
-        throw new Error('Estructura de respuesta inesperada');
+        throw new Error('Unexpected response structure');
       }
     } catch (error) {
       console.error('Failed to fetch user:', error);
-      // Limpiar token si hay error de autenticación
       localStorage.removeItem('token');
-      setToken(null);
+      setTokenState(null);
     } finally {
       setIsLoading(false);
     }
@@ -61,31 +71,18 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
     try {
       setIsLoading(true);
       const response = await apiClient.post('/auth/login', { email, password });
-      
-      // VERIFICAR Y ADAPTAR A LA ESTRUCTURA REAL DE LA API
-      let authToken, userData;
-      
-      if (response && response.token) {
-        authToken = response.token;
-        userData = response.user;
-      } else if (response && response.data) {
-        authToken = response.data.token;
-        userData = response.data.user;
-      } else {
-        throw new Error('Estructura de respuesta inesperada');
-      }
 
-      if (!authToken) {
-        throw new Error('No se recibió token de autenticación');
-      }
+      const authToken = response?.token;
+      const userData = response?.user;
 
-      setToken(authToken);
-      setUser(userData);
+      if (!authToken) throw new Error('Auth token missing');
+
+      setTokenState(authToken);
       localStorage.setItem('token', authToken);
+      setAuthToken(authToken);
+
+      setUser(userData);
       hasFetchedUser.current = true;
-    } catch (error) {
-      console.error('Login error:', error);
-      throw error; // Re-lanzar el error para manejarlo en el componente
     } finally {
       setIsLoading(false);
     }
@@ -94,36 +91,23 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   const register = async (name: string, email: string, password: string) => {
     try {
       setIsLoading(true);
-      const response = await apiClient.post('/auth/register', { 
-        name, 
-        email, 
-        password 
+      const response = await apiClient.post('/auth/register', {
+        name,
+        email,
+        password,
       });
 
-      // VERIFICAR Y ADAPTAR A LA ESTRUCTURA REAL DE LA API
-      let authToken, userData;
-      
-      if (response && response.token) {
-        authToken = response.token;
-        userData = response.user;
-      } else if (response && response.data) {
-        authToken = response.data.token;
-        userData = response.data.user;
-      } else {
-        throw new Error('Estructura de respuesta inesperada');
-      }
+      const authToken = response?.token;
+      const userData = response?.user;
 
-      if (!authToken) {
-        throw new Error('No se recibió token de autenticación');
-      }
+      if (!authToken) throw new Error('Auth token missing');
 
-      setToken(authToken);
-      setUser(userData);
+      setTokenState(authToken);
       localStorage.setItem('token', authToken);
+      setAuthToken(authToken);
+
+      setUser(userData);
       hasFetchedUser.current = true;
-    } catch (error) {
-      console.error('Registration error:', error);
-      throw error; // Re-lanzar el error para manejarlo en el componente
     } finally {
       setIsLoading(false);
     }
@@ -131,8 +115,9 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
 
   const logout = () => {
     setUser(null);
-    setToken(null);
     localStorage.removeItem('token');
+    setTokenState(null);
+    setAuthToken(undefined);
     hasFetchedUser.current = false;
   };
 
@@ -146,8 +131,6 @@ export const AuthProvider = ({ children }: AuthProviderProps) => {
   };
 
   return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
   );
 };

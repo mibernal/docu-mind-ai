@@ -1,4 +1,4 @@
-// src/App.tsx - CORREGIR IMPORTACIONES
+// src/App.tsx 
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -17,6 +17,8 @@ import DocumentUpload from "./pages/DocumentUpload";
 import Templates from "./pages/Templates";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+
+
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -82,7 +84,7 @@ const App = () => (
   <ErrorBoundary>
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <BrowserRouter>
+        <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
           <AuthProvider>
             <Routes>
               <Route 

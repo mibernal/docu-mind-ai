@@ -1,4 +1,3 @@
-// src/pages/Dashboard.tsx
 import { useEffect, useState } from "react";
 import { FileText, Clock, CheckCircle2, TrendingUp, Receipt, Scale, Settings } from "lucide-react";
 import { MetricCard } from "@/features/dashboard/components/MetricCard";
@@ -11,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/features/auth/hooks/useAuth";
 import { toast } from "sonner";
+import { ApiResponse } from "@/types/api";
 
 // Datos mock para cuando la API no esté disponible
 const MOCK_DOCUMENTS: ProcessedDocument[] = [
@@ -23,7 +23,9 @@ const MOCK_DOCUMENTS: ProcessedDocument[] = [
     processedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000 + 5000).toISOString(),
     confidence: 0.95,
     fileSize: 2048576,
-    fileType: "application/pdf"
+    fileType: "application/pdf",
+    processingEngine: "gemini",
+    fileUrl: "/uploads/sample.pdf"
   },
   {
     id: "2",
@@ -34,7 +36,9 @@ const MOCK_DOCUMENTS: ProcessedDocument[] = [
     processedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000 + 3000).toISOString(),
     confidence: 0.87,
     fileSize: 1048576,
-    fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    fileType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    processingEngine: "personalized",
+    fileUrl: "/uploads/sample.xlsx"
   }
 ];
 
@@ -76,44 +80,53 @@ export default function Dashboard() {
 
         // Procesar métricas
         if (metricsResult.status === 'fulfilled') {
-          metricsData = metricsResult.value;
-          // Verificar si estamos usando datos mock (cuando la API devuelve estructura vacía)
-          if (metricsData.stats?.totalDocuments === 0 && 
-              metricsData.stats?.successRate === 0 && 
-              (!metricsData.stats?.documentsByType || metricsData.stats.documentsByType.length === 0)) {
-            metricsData = { stats: MOCK_METRICS };
+          const result = metricsResult.value as ApiResponse;
+          if (result.success && result.data?.stats) {
+            metricsData = result.data.stats;
+          } else {
+            console.warn('API returned unsuccessful response for metrics:', result);
+            metricsData = MOCK_METRICS;
             usedMock = true;
           }
         } else {
           console.warn('Failed to fetch metrics, using mock data:', metricsResult.reason);
-          metricsData = { stats: MOCK_METRICS };
+          metricsData = MOCK_METRICS;
           usedMock = true;
         }
 
         // Procesar documentos
         if (documentsResult.status === 'fulfilled') {
-          documentsData = documentsResult.value;
-          // Verificar si estamos usando datos mock
-          if (!documentsData.documents || documentsData.documents.length === 0) {
-            documentsData = { documents: MOCK_DOCUMENTS };
+          const result = documentsResult.value as ApiResponse;
+          if (result.success && result.data?.documents) {
+            documentsData = result.data.documents;
+          } else {
+            console.warn('API returned unsuccessful response for documents:', result);
+            documentsData = MOCK_DOCUMENTS;
             usedMock = true;
           }
         } else {
           console.warn('Failed to fetch documents, using mock data:', documentsResult.reason);
-          documentsData = { documents: MOCK_DOCUMENTS };
+          documentsData = MOCK_DOCUMENTS;
           usedMock = true;
         }
 
-        setMetrics({
-          totalDocuments: metricsData.stats?.totalDocuments || 0,
-          successRate: metricsData.stats?.successRate || 0,
-          averageProcessingTime: metricsData.stats?.averageProcessingTime || 2.3,
-          timeSaved: metricsData.stats?.timeSaved || 0,
-          documentsByType: metricsData.stats?.documentsByType || [],
-        });
+        // Asegurarse de que documentsByType siempre sea un array
+        const safeMetrics = {
+          totalDocuments: metricsData.totalDocuments || 0,
+          successRate: metricsData.successRate || 0,
+          averageProcessingTime: metricsData.averageProcessingTime || 2.3,
+          timeSaved: metricsData.timeSaved || 0,
+          documentsByType: Array.isArray(metricsData.documentsByType) ? 
+            metricsData.documentsByType : [],
+        };
 
-        setRecentDocuments(documentsData.documents || []);
+        setMetrics(safeMetrics);
+        setRecentDocuments(Array.isArray(documentsData) ? documentsData : MOCK_DOCUMENTS);
         setUsingMockData(usedMock);
+        
+        if (usedMock) {
+          toast.warning("Using demo data. Some features may be limited.");
+        }
         
       } catch (error) {
         console.error('Failed to fetch dashboard data, using mock data:', error);
@@ -123,7 +136,7 @@ export default function Dashboard() {
         setRecentDocuments(MOCK_DOCUMENTS);
         setUsingMockData(true);
         
-        toast.error("Failed to load dashboard data, showing demo data");
+        toast.error("Failed to load dashboard data. Please check your connection.");
       } finally {
         setIsLoading(false);
       }
@@ -173,6 +186,9 @@ export default function Dashboard() {
               )}
             </p>
           </div>
+          <Button onClick={() => navigate("/documents/upload")}>
+            Upload New Document
+          </Button>
         </div>
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -291,6 +307,9 @@ export default function Dashboard() {
               </Button>
               <Button variant="outline" onClick={() => navigate("/templates")}>
                 Manage Templates
+              </Button>
+              <Button variant="outline" onClick={() => navigate("/settings")}>
+                Settings
               </Button>
             </div>
           </CardContent>

@@ -1,5 +1,4 @@
-// apps/web/src/lib/api.ts
-const DEFAULT_API = (import.meta.env.VITE_API_URL as string) || '/api'; // usar proxy por defecto
+const DEFAULT_API = (import.meta.env.VITE_API_URL as string) || '/api';
 
 let authHeader: Record<string, string> = {};
 
@@ -23,7 +22,7 @@ export const apiClient = {
 
     const isFormData = options.body instanceof FormData;
     const headers = isFormData
-      ? { ...(options.headers || {}), ...authHeader } // don't set Content-Type for FormData
+      ? { ...(options.headers || {}), ...authHeader }
       : {
           'Content-Type': 'application/json',
           ...(options.headers || {}),
@@ -39,34 +38,34 @@ export const apiClient = {
     try {
       response = await fetch(url, config);
     } catch (fetchErr: any) {
-      // fallo de red (server caído, CORS, conexión rehusada, etc.)
-      const err = new Error(`Network error or server unreachable: ${fetchErr.message}`);
+      const err = new Error(
+        `Network error or server unreachable: ${fetchErr.message}`
+      );
       (err as any).status = 0;
       throw err;
     }
 
     if (!response.ok) {
-      // intenta leer cuerpo de error si hay uno
       let bodyText = '';
       try {
         bodyText = await response.text();
-      } catch (e) {
-        /* ignore */
-      }
-      const msg = `HTTP error! status: ${response.status} ${response.statusText}${bodyText ? ' - ' + bodyText : ''}`;
+      } catch (_) {}
+
+      const msg = `HTTP error! status: ${response.status} ${response.statusText}${
+        bodyText ? ' - ' + bodyText : ''
+      }`;
       const err: any = new Error(msg);
       err.status = response.status;
       throw err;
     }
 
-    // 204 No Content
     if (response.status === 204) return null;
 
-    // intentar parsear JSON, si no es JSON devolver texto
     const contentType = response.headers.get('content-type') || '';
     if (contentType.includes('application/json')) {
       return response.json();
     }
+
     return response.text();
   },
 
@@ -94,34 +93,93 @@ export const apiClient = {
     });
   },
 
+  // MÉTODOS ESPECÍFICOS PARA DOCUMENTOS
+  getDocumentMetrics() {
+    return this.get('/documents/metrics');
+  },
+
+  getDocuments(options?: { limit?: number; offset?: number; type?: string; status?: string; search?: string }) {
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', String(options.limit));
+    if (options?.offset) params.append('offset', String(options.offset));
+    if (options?.type && options.type !== 'all') params.append('type', options.type);
+    if (options?.status && options.status !== 'all') params.append('status', options.status);
+    if (options?.search) params.append('search', options.search);
+    
+    const query = params.toString();
+    return this.get(`/documents${query ? '?' + query : ''}`);
+  },
+
+  getDocument(id: string) {
+    return this.get(`/documents/${id}`);
+  },
+
+  getDocumentStatus(id: string) {
+    return this.get(`/documents/${id}/status`);
+  },
+
   uploadDocument(formData: FormData) {
-    return this.request('documents', {
+    return this.request('/documents/upload', {
       method: 'POST',
-      // DO NOT set Content-Type - browser sets the boundary for FormData
       body: formData,
     });
   },
 
-  getDocument(documentId: string) {
-    return this.get(`documents/${documentId}`);
+  // MÉTODOS PARA PLANTILLAS
+  getTemplates() {
+    return this.get('/templates');
   },
 
-  getDocumentStatus(documentId: string) {
-    return this.get(`documents/${documentId}/status`);
+  createTemplate(data: any) {
+    return this.post('/templates', data);
   },
 
-  getDocumentMetrics() {
-    return this.get('documents/metrics');
+  updateTemplate(id: string, data: any) {
+    return this.put(`/templates/${id}`, data);
   },
 
-  getDocuments(options?: { limit?: number; page?: number }) {
-    const params = new URLSearchParams();
-    if (options?.limit) params.append('limit', options.limit.toString());
-    if (options?.page) params.append('page', options.page.toString());
-    const query = params.toString();
-    return this.get(`documents${query ? '?' + query : ''}`);
+  deleteTemplate(id: string) {
+    return this.delete(`/templates/${id}`);
+  },
+
+  // MÉTODOS PARA USUARIO
+  getUserProfile() {
+    return this.get('/users/profile');
+  },
+
+  updateUserPreferences(data: any) {
+    return this.put('/users/preferences', data);
+  },
+
+  updateOnboarding(data: any) {
+    return this.put('/users/onboarding', data);
+  },
+
+  // MÉTODOS DE AUTENTICACIÓN
+  login(email: string, password: string) {
+    return this.post('/auth/login', { email, password });
+  },
+
+  register(name: string, email: string, password: string) {
+    return this.post('/auth/register', { name, email, password });
+  },
+
+  verifyEmail(token: string) {
+    return this.get(`/auth/verify-email?token=${token}`);
+  },
+
+  forgotPassword(email: string) {
+    return this.post('/auth/forgot-password', { email });
+  },
+
+  resetPassword(token: string, password: string) {
+    return this.post('/auth/reset-password', { token, password });
+  },
+
+  logout() {
+    return this.post('/auth/logout', {});
   },
 };
 
-export const api = apiClient;
 export default apiClient;
+export const api = apiClient;
