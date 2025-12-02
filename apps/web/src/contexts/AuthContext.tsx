@@ -1,5 +1,5 @@
-import { createContext, useState, useEffect, useRef, ReactNode } from 'react';
-import { apiClient } from "../lib/api";
+import React, { createContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
+import apiClient, { setAuthToken } from '@/lib/api';
 import { User } from "../types";
 
 export interface AuthContextType {

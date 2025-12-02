@@ -1,25 +1,73 @@
-// Cliente API para el frontend - usa fetch para comunicarse con el backend
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
+// apps/web/src/lib/api.ts
+const DEFAULT_API = (import.meta.env.VITE_API_URL as string) || '/api'; // usar proxy por defecto
+
+let authHeader: Record<string, string> = {};
+
+export function setAuthToken(token?: string | null) {
+  if (token) {
+    authHeader['Authorization'] = `Bearer ${token}`;
+  } else {
+    delete authHeader['Authorization'];
+  }
+}
+
+function joinUrl(base: string, endpoint: string) {
+  const b = base.replace(/\/$/, '');
+  const e = endpoint.replace(/^\//, '');
+  return `${b}/${e}`;
+}
 
 export const apiClient = {
   async request(endpoint: string, options: RequestInit = {}) {
-    const url = `${API_BASE_URL}${endpoint}`;
+    const url = joinUrl(DEFAULT_API, endpoint);
+
     const isFormData = options.body instanceof FormData;
-    const config = {
-      headers: isFormData ? { ...options.headers } : {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
+    const headers = isFormData
+      ? { ...(options.headers || {}), ...authHeader } // don't set Content-Type for FormData
+      : {
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+          ...authHeader,
+        };
+
+    const config: RequestInit = {
       ...options,
+      headers,
     };
 
-    const response = await fetch(url, config);
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+    let response: Response;
+    try {
+      response = await fetch(url, config);
+    } catch (fetchErr: any) {
+      // fallo de red (server caído, CORS, conexión rehusada, etc.)
+      const err = new Error(`Network error or server unreachable: ${fetchErr.message}`);
+      (err as any).status = 0;
+      throw err;
     }
-    
-    return response.json();
+
+    if (!response.ok) {
+      // intenta leer cuerpo de error si hay uno
+      let bodyText = '';
+      try {
+        bodyText = await response.text();
+      } catch (e) {
+        /* ignore */
+      }
+      const msg = `HTTP error! status: ${response.status} ${response.statusText}${bodyText ? ' - ' + bodyText : ''}`;
+      const err: any = new Error(msg);
+      err.status = response.status;
+      throw err;
+    }
+
+    // 204 No Content
+    if (response.status === 204) return null;
+
+    // intentar parsear JSON, si no es JSON devolver texto
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return response.json();
+    }
+    return response.text();
   },
 
   get(endpoint: string) {
@@ -47,23 +95,23 @@ export const apiClient = {
   },
 
   uploadDocument(formData: FormData) {
-    return this.request('/documents', {
+    return this.request('documents', {
       method: 'POST',
-      headers: {},
+      // DO NOT set Content-Type - browser sets the boundary for FormData
       body: formData,
     });
   },
 
   getDocument(documentId: string) {
-    return this.get(`/documents/${documentId}`);
+    return this.get(`documents/${documentId}`);
   },
 
   getDocumentStatus(documentId: string) {
-    return this.get(`/documents/${documentId}/status`);
+    return this.get(`documents/${documentId}/status`);
   },
 
   getDocumentMetrics() {
-    return this.get('/documents/metrics');
+    return this.get('documents/metrics');
   },
 
   getDocuments(options?: { limit?: number; page?: number }) {
@@ -71,10 +119,9 @@ export const apiClient = {
     if (options?.limit) params.append('limit', options.limit.toString());
     if (options?.page) params.append('page', options.page.toString());
     const query = params.toString();
-    return this.get(`/documents${query ? '?' + query : ''}`);
+    return this.get(`documents${query ? '?' + query : ''}`);
   },
 };
 
-// Exportar tanto apiClient como api para compatibilidad
 export const api = apiClient;
 export default apiClient;
