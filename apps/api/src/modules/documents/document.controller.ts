@@ -1,3 +1,4 @@
+//apps\api\src\modules\documents\document.controller.ts
 import { Response } from 'express';
 import { prisma } from "../../shared/db.js";
 import { AuthRequest } from '../../core/middleware/auth.middleware.js';

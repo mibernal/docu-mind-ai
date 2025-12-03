@@ -1,4 +1,4 @@
-// src/hooks/useOnboarding.ts
+// apps\web\src\features\auth\hooks\useOnboarding.ts
 import { useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from "./useAuth";
@@ -8,7 +8,7 @@ export const useOnboarding = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { preferences } = usePreferences();
-  const [isChecking, setIsChecking] = useState(false);
+  const [isChecking] = useState(false);
 
   const checkOnboardingStatus = useCallback(() => {
     if (!user) return false;

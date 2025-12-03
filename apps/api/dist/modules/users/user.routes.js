@@ -1,24 +1,22 @@
-// server/src/routes/user.routes.ts
+// apps/api/src/modules/users/user.routes.ts
 import { Router } from 'express';
 import { getProfile, updateProfile, updateOrganization, getUsageStats, deleteAccount } from './user.controller';
 import { authMiddleware } from '../auth/auth.middleware';
 import { validate } from '../../core/middleware/validation.middleware';
 import { updateProfileSchema } from "../../shared/validation";
 import { apiLimiter } from '../../core/middleware/rateLimit.middleware';
-//import { userController } from './user.controller';
 const router = Router();
-// Aplicar rate limiting a todas las rutas de usuario
+// Aplicar rate limiting
 router.use(apiLimiter);
-// Todas las rutas requieren autenticación
+// Requiere autenticación
 router.use(authMiddleware);
-// Rutas de perfil de usuario
+// Perfil
 router.get('/profile', getProfile);
-// CORRECCIÓN: Usar el esquema correctamente
 router.put('/profile', validate(updateProfileSchema), updateProfile);
-// Rutas de organización
+// Organización
 router.put('/organization', updateOrganization);
-// Rutas de estadísticas y uso
+// Estadísticas
 router.get('/usage', getUsageStats);
-// Rutas de gestión de cuenta
+// Eliminar cuenta
 router.delete('/account', deleteAccount);
 export default router;

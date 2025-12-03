@@ -2,17 +2,17 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
-import { testConnection, prisma } from './shared/db.js';
-import { logger } from './shared/logger.js';
+import { testConnection, prisma } from './shared/db';
+import { logger } from './shared/logger';
 
 // Import routes
-import authRoutes from './modules/auth/auth.routes.js';
-import userRoutes from './modules/users/user.routes.js';
-import documentRoutes from './modules/documents/document.routes.js';
-import preferenceRoutes from './modules/users/preferences.routes.js';
+import authRoutes from './modules/auth/auth.routes';
+import userRoutes from './modules/users/user.routes';
+import documentRoutes from './modules/documents/document.routes';
+import preferenceRoutes from './modules/users/preferences.routes';
 
 // Import middleware
-import { apiLimiter, authLimiter } from './core/middleware/rateLimit.middleware.js';
+import { apiLimiter, authLimiter } from './core/middleware/rateLimit.middleware';
 
 const app = express();
 const PORT = process.env.PORT || 3001;

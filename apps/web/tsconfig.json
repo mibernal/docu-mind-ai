@@ -1,25 +1,30 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "useDefineForClassFields": true,
-    "lib": ["ES2020", "DOM", "DOM.Iterable"],
-    "module": "ESNext",
-    "skipLibCheck": true,
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "resolveJsonModule": true,
-    "isolatedModules": true,
-    "moduleDetection": "force",
-    "noEmit": true,
-    "jsx": "react-jsx",
-    "strict": false,  // Temporalmente para desarrollo
     "noUnusedLocals": false,
     "noUnusedParameters": false,
-    "noFallthroughCasesInSwitch": true,
+    "jsx": "react-jsx",
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+
+    /* === Paths / Aliases === */
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"]
-    }
+      "@/*": ["./src/*"],
+      "shared": ["../../packages/shared/src/index.ts"],
+      "ai-processor": ["../../packages/ai-processor/src/index.ts"]
+    },
+
+    /* === Calidad y DX === */
+    "strict": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "allowJs": false,
+    "isolatedModules": true
   },
-  "include": ["src"]
+
+  /* Qué archivos toma */
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
 }

@@ -1,8 +1,8 @@
-import React, {
+//apps\web\src\contexts\AuthContext.tsx
+import {
   createContext,
   useState,
   useEffect,
-  useCallback,
   ReactNode,
   useRef,
 } from 'react';

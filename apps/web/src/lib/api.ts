@@ -98,17 +98,23 @@ export const apiClient = {
     return this.get('/documents/metrics');
   },
 
-  getDocuments(options?: { limit?: number; offset?: number; type?: string; status?: string; search?: string }) {
-    const params = new URLSearchParams();
-    if (options?.limit) params.append('limit', String(options.limit));
-    if (options?.offset) params.append('offset', String(options.offset));
-    if (options?.type && options.type !== 'all') params.append('type', options.type);
-    if (options?.status && options.status !== 'all') params.append('status', options.status);
-    if (options?.search) params.append('search', options.search);
-    
-    const query = params.toString();
-    return this.get(`/documents${query ? '?' + query : ''}`);
-  },
+  getDocuments(options?: { 
+  page?: number; 
+  limit?: number; 
+  type?: string; 
+  status?: string; 
+  search?: string 
+}) {
+  const params = new URLSearchParams();
+  if (options?.page) params.append('page', String(options.page));
+  if (options?.limit) params.append('limit', String(options.limit));
+  if (options?.type && options.type !== 'all') params.append('type', options.type);
+  if (options?.status && options.status !== 'all') params.append('status', options.status);
+  if (options?.search) params.append('search', options.search);
+  
+  const query = params.toString();
+  return this.get(`/documents${query ? '?' + query : ''}`);
+},
 
   getDocument(id: string) {
     return this.get(`/documents/${id}`);

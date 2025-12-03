@@ -3,19 +3,21 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+
   "scripts": {
     "predev": "npm run db:generate && npm run db:push",
     "dev": "npm run predev && tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "db:push": "prisma db push --schema=src/prisma/schema.prisma",
-    "db:generate": "prisma generate --schema=src/prisma/schema.prisma",
+    "db:push": "prisma db push --schema=./src/prisma/schema.prisma",
+    "db:generate": "prisma generate --schema=./src/prisma/schema.prisma",
     "db:seed": "tsx src/prisma/seed.ts",
-    "db:migrate": "prisma migrate dev --schema=src/prisma/schema.prisma",
-    "db:studio": "prisma studio --schema=src/prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema=./src/prisma/schema.prisma",
+    "db:studio": "prisma studio --schema=./src/prisma/schema.prisma",
     "type-check": "tsc --noEmit",
     "setup": "npm run db:generate && npm run db:push && npm run db:seed"
   },
+
   "dependencies": {
     "@prisma/client": "^6.19.0",
     "@types/express-rate-limit": "^5.1.3",

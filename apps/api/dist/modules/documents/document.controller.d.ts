@@ -5,3 +5,4 @@ export declare const getDocuments: (req: AuthRequest, res: Response) => Promise<
 export declare const getDocument: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const getDocumentMetrics: (req: AuthRequest, res: Response) => Promise<void>;
 export declare const getDocumentStatus: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const deleteDocument: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;

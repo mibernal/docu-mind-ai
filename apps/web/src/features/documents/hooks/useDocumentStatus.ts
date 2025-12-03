@@ -1,4 +1,4 @@
-// hooks/useDocumentStatus.ts - VERSIÓN CORREGIDA
+// apps\web\src\features\documents\hooks\useDocumentStatus.ts
 import { useState, useEffect, useRef } from 'react';
 import { apiClient } from '@/lib/api';
 

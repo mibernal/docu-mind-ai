@@ -1,4 +1,4 @@
-// src/routes/preferences.routes.ts
+// apps/api/src/modules/users/preferences.routes.ts
 import { Router } from 'express';
 import { setUserPreferences, getUserPreferences, updateUserPreferences, getPredefinedTemplates, addCustomField, deleteCustomField } from './onboarding.controller';
 import { authMiddleware } from '../auth/auth.middleware';

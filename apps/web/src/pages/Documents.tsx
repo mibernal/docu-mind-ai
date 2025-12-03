@@ -1,8 +1,8 @@
-//src\pages\Documents.tsx
+//apps\web\src\pages\Documents.tsx
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
 import { DocumentsTable } from "@/features/documents/components/DocumentsTable";
-import { ExportButton } from "@/features/documents/components/ExportButton"; // NUEVO IMPORT
+import { ExportButton } from "@/features/documents/components/ExportButton";
 import { ProcessedDocument } from "@/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -44,17 +44,27 @@ export default function Documents() {
       if (statusFilter !== "all") params.status = statusFilter;
       if (searchQuery) params.search = searchQuery;
 
-      const data = await apiClient.getDocuments(params);
-      setDocuments(data.documents);
-      setPagination({
-        page: data.page,
-        limit: data.limit,
-        total: data.total,
-        totalPages: data.totalPages,
-      });
+      const response = await apiClient.getDocuments(params);
+      
+      // ✅ CORREGIDO: Acceder a response.data.documents
+      if (response.success && response.data) {
+        const { documents: docs, total, page: currentPage, totalPages, limit } = response.data;
+        
+        setDocuments(docs || []);
+        setPagination({
+          page: currentPage,
+          limit: limit,
+          total: total,
+          totalPages: totalPages,
+        });
+      } else {
+        toast.error("Failed to load documents");
+        setDocuments([]);
+      }
     } catch (error) {
       console.error("Failed to fetch documents:", error);
       toast.error("Failed to load documents");
+      setDocuments([]); // ✅ Asegurar array vacío en error
     } finally {
       setIsLoading(false);
     }
@@ -77,7 +87,8 @@ export default function Documents() {
     fetchDocuments(newPage);
   };
 
-  const filteredDocuments = documents.filter((doc) => {
+  // ✅ CORREGIDO: Proteger contra undefined
+  const filteredDocuments = (documents || []).filter((doc) => {
     const matchesSearch = doc.filename
       .toLowerCase()
       .includes(searchQuery.toLowerCase());
@@ -95,7 +106,6 @@ export default function Documents() {
             </p>
           </div>
           <div className="flex gap-2">
-            {/* NUEVO BOTÓN DE EXPORTACIÓN */}
             <ExportButton 
               documents={documents} 
               disabled={isLoading || documents.length === 0}
@@ -132,7 +142,6 @@ export default function Documents() {
                 <SelectItem value="invoice">Invoice</SelectItem>
                 <SelectItem value="receipt">Receipt</SelectItem>
                 <SelectItem value="contract">Contract</SelectItem>
-                {/* NUEVO TIPO DE DOCUMENTO */}
                 <SelectItem value="contract_certification">Certificación Contrato</SelectItem>
                 <SelectItem value="other">Other</SelectItem>
               </SelectContent>
