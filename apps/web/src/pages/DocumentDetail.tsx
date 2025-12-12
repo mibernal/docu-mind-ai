@@ -1,3 +1,4 @@
+//apps\web\src\pages\DocumentDetail.tsx
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { DashboardLayout } from "@/components/layout/DashboardLayout";
@@ -38,18 +39,23 @@ export default function DocumentDetail() {
   useEffect(() => {
     const fetchDocument = async () => {
       if (!id) return;
-
       try {
-        const data = await apiClient.getDocument(id);
-        setCurrentDocument(data.document);
-      } catch (error) {
+        const response = await apiClient.getDocument(id);
+        // ✅ CORREGIDO: Acceder correctamente a la estructura anidada
+        if (response.success && response.data) {
+          setCurrentDocument(response.data.document);
+        } else {
+          toast.error(response.error || "Failed to load document");
+          setCurrentDocument(null);
+        }
+      } catch (error: any) {
         console.error("Failed to fetch document:", error);
-        toast.error("Failed to load document");
+        toast.error(error.message || "Failed to load document");
+        setCurrentDocument(null);
       } finally {
         setIsLoading(false);
       }
     };
-
     fetchDocument();
   }, [id]);
 
@@ -160,7 +166,8 @@ export default function DocumentDetail() {
   }
 
   const fieldsToDisplay = getFieldsToDisplay();
-  const hasExtractedData = currentDocument.extractedData && Object.keys(currentDocument.extractedData).length > 0;
+  const hasExtractedData = currentDocument.extractedData && 
+    Object.keys(currentDocument.extractedData).length > 0;
 
   const getStatusColor = (status: string) => {
     switch (status) {

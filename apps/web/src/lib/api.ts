@@ -1,3 +1,4 @@
+//apps\web\src\lib\api.ts
 const DEFAULT_API = (import.meta.env.VITE_API_URL as string) || '/api';
 
 let authHeader: Record<string, string> = {};

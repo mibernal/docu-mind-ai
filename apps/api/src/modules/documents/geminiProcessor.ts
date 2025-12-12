@@ -29,7 +29,12 @@ interface ExtractionFunctions {
 }
 
 export class GeminiProcessor {
-  private availableModels = ['gemini-1.5-flash', 'gemini-1.5-pro'];
+  private availableModels = [
+  'gemini-2.5-flash',      // Best for price/performance, high-volume tasks[citation:5]
+  'gemini-2.5-flash-lite', // Fastest, optimized for cost-efficiency[citation:5]
+  'gemini-2.5-pro',        // State-of-the-art for complex reasoning and document analysis[citation:5][citation:8]
+  'gemini-3-pro-preview'   // Most intelligent multimodal model (Preview)[citation:5][citation:9]
+];
   private currentModelIndex = 0;
 
   private async tryWithNextModel(): Promise<string> {
