@@ -1,0 +1,542 @@
+================================================================================
+DOCU-MIND-AI - 4 ARCHIVOS CLAVE PARA DIAGNÓSTICO
+================================================================================
+
+Fecha de exportación: 2025-12-12 17:04:37
+Directorio raíz: C:\Users\info\OneDrive\Documentos\Programacion\React\docu-mind-ai-2
+
+ARCHIVOS SOLICITADOS:
+1. Auth Context - apps/web/src/contexts/AuthContext.tsx
+2. API Config - apps/web/src/lib/api.ts
+3. Database config - apps/api/src/shared/db.ts
+4. Routes imports - apps/api/src/index.ts
+
+================================================================================
+
+
+================================================================================
+ARCHIVO: apps/web/src/contexts/AuthContext.tsx
+DESCRIPCIÓN: Contexto de autenticación para manejar estado de usuario y sesiones
+================================================================================
+
+//apps\web\src\contexts\AuthContext.tsx
+import {
+  createContext,
+  useState,
+  useEffect,
+  ReactNode,
+  useRef,
+} from 'react';
+import apiClient, { setAuthToken } from '@/lib/api';
+import { User } from '../types';
+
+export interface AuthContextType {
+  user: User | null;
+  token: string | null;
+  login: (email: string, password: string) => Promise<void>;
+  register: (name: string, email: string, password: string) => Promise<void>;
+  logout: () => void;
+  isLoading: boolean;
+}
+
+export const AuthContext = createContext<AuthContextType | undefined>(
+  undefined
+);
+
+interface AuthProviderProps {
+  children: ReactNode;
+}
+
+export const AuthProvider = ({ children }: AuthProviderProps) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setTokenState] = useState<string | null>(
+    localStorage.getItem('token')
+  );
+  const [isLoading, setIsLoading] = useState(true);
+  const hasFetchedUser = useRef(false);
+
+  // 🔥 aplicar token al cargar
+  useEffect(() => {
+    setAuthToken(token || undefined);
+  }, [token]);
+
+  useEffect(() => {
+    if (token && !hasFetchedUser.current) {
+      hasFetchedUser.current = true;
+      fetchUser();
+    } else {
+      setIsLoading(false);
+    }
+  }, [token]);
+
+  const fetchUser = async () => {
+    try {
+      setIsLoading(true);
+      const response = await apiClient.get('/auth/me');
+
+      if (response?.user) {
+        setUser(response.user);
+      } else {
+        throw new Error('Unexpected response structure');
+      }
+    } catch (error) {
+      console.error('Failed to fetch user:', error);
+      localStorage.removeItem('token');
+      setTokenState(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const login = async (email: string, password: string) => {
+    try {
+      setIsLoading(true);
+      const response = await apiClient.post('/auth/login', { email, password });
+
+      const authToken = response?.token;
+      const userData = response?.user;
+
+      if (!authToken) throw new Error('Auth token missing');
+
+      setTokenState(authToken);
+      localStorage.setItem('token', authToken);
+      setAuthToken(authToken);
+
+      setUser(userData);
+      hasFetchedUser.current = true;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const register = async (name: string, email: string, password: string) => {
+    try {
+      setIsLoading(true);
+      const response = await apiClient.post('/auth/register', {
+        name,
+        email,
+        password,
+      });
+
+      const authToken = response?.token;
+      const userData = response?.user;
+
+      if (!authToken) throw new Error('Auth token missing');
+
+      setTokenState(authToken);
+      localStorage.setItem('token', authToken);
+      setAuthToken(authToken);
+
+      setUser(userData);
+      hasFetchedUser.current = true;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem('token');
+    setTokenState(null);
+    setAuthToken(undefined);
+    hasFetchedUser.current = false;
+  };
+
+  const value: AuthContextType = {
+    user,
+    token,
+    login,
+    register,
+    logout,
+    isLoading,
+  };
+
+  return (
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  );
+};
+
+================================================================================
+ARCHIVO: apps/web/src/lib/api.ts
+DESCRIPCIÓN: Configuración de Axios/fetch y funciones para comunicación con el backend
+================================================================================
+
+//apps\web\src\lib\api.ts
+const DEFAULT_API = (import.meta.env.VITE_API_URL as string) || '/api';
+
+let authHeader: Record<string, string> = {};
+
+export function setAuthToken(token?: string | null) {
+  if (token) {
+    authHeader['Authorization'] = `Bearer ${token}`;
+  } else {
+    delete authHeader['Authorization'];
+  }
+}
+
+function joinUrl(base: string, endpoint: string) {
+  const b = base.replace(/\/$/, '');
+  const e = endpoint.replace(/^\//, '');
+  return `${b}/${e}`;
+}
+
+export const apiClient = {
+  async request(endpoint: string, options: RequestInit = {}) {
+    const url = joinUrl(DEFAULT_API, endpoint);
+
+    const isFormData = options.body instanceof FormData;
+    const headers = isFormData
+      ? { ...(options.headers || {}), ...authHeader }
+      : {
+          'Content-Type': 'application/json',
+          ...(options.headers || {}),
+          ...authHeader,
+        };
+
+    const config: RequestInit = {
+      ...options,
+      headers,
+    };
+
+    let response: Response;
+    try {
+      response = await fetch(url, config);
+    } catch (fetchErr: any) {
+      const err = new Error(
+        `Network error or server unreachable: ${fetchErr.message}`
+      );
+      (err as any).status = 0;
+      throw err;
+    }
+
+    if (!response.ok) {
+      let bodyText = '';
+      try {
+        bodyText = await response.text();
+      } catch (_) {}
+
+      const msg = `HTTP error! status: ${response.status} ${response.statusText}${
+        bodyText ? ' - ' + bodyText : ''
+      }`;
+      const err: any = new Error(msg);
+      err.status = response.status;
+      throw err;
+    }
+
+    if (response.status === 204) return null;
+
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      return response.json();
+    }
+
+    return response.text();
+  },
+
+  get(endpoint: string) {
+    return this.request(endpoint);
+  },
+
+  post(endpoint: string, data: any) {
+    return this.request(endpoint, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  put(endpoint: string, data: any) {
+    return this.request(endpoint, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    });
+  },
+
+  delete(endpoint: string) {
+    return this.request(endpoint, {
+      method: 'DELETE',
+    });
+  },
+
+  // MÉTODOS ESPECÍFICOS PARA DOCUMENTOS
+  getDocumentMetrics() {
+    return this.get('/documents/metrics');
+  },
+
+  getDocuments(options?: { 
+  page?: number; 
+  limit?: number; 
+  type?: string; 
+  status?: string; 
+  search?: string 
+}) {
+  const params = new URLSearchParams();
+  if (options?.page) params.append('page', String(options.page));
+  if (options?.limit) params.append('limit', String(options.limit));
+  if (options?.type && options.type !== 'all') params.append('type', options.type);
+  if (options?.status && options.status !== 'all') params.append('status', options.status);
+  if (options?.search) params.append('search', options.search);
+  
+  const query = params.toString();
+  return this.get(`/documents${query ? '?' + query : ''}`);
+},
+
+  getDocument(id: string) {
+    return this.get(`/documents/${id}`);
+  },
+
+  getDocumentStatus(id: string) {
+    return this.get(`/documents/${id}/status`);
+  },
+
+  uploadDocument(formData: FormData) {
+    return this.request('/documents/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  },
+
+  // MÉTODOS PARA PLANTILLAS
+  getTemplates() {
+    return this.get('/templates');
+  },
+
+  createTemplate(data: any) {
+    return this.post('/templates', data);
+  },
+
+  updateTemplate(id: string, data: any) {
+    return this.put(`/templates/${id}`, data);
+  },
+
+  deleteTemplate(id: string) {
+    return this.delete(`/templates/${id}`);
+  },
+
+  // MÉTODOS PARA USUARIO
+  getUserProfile() {
+    return this.get('/users/profile');
+  },
+
+  updateUserPreferences(data: any) {
+    return this.put('/users/preferences', data);
+  },
+
+  updateOnboarding(data: any) {
+    return this.put('/users/onboarding', data);
+  },
+
+  // MÉTODOS DE AUTENTICACIÓN
+  login(email: string, password: string) {
+    return this.post('/auth/login', { email, password });
+  },
+
+  register(name: string, email: string, password: string) {
+    return this.post('/auth/register', { name, email, password });
+  },
+
+  verifyEmail(token: string) {
+    return this.get(`/auth/verify-email?token=${token}`);
+  },
+
+  forgotPassword(email: string) {
+    return this.post('/auth/forgot-password', { email });
+  },
+
+  resetPassword(token: string, password: string) {
+    return this.post('/auth/reset-password', { token, password });
+  },
+
+  logout() {
+    return this.post('/auth/logout', {});
+  },
+};
+
+export default apiClient;
+export const api = apiClient;
+
+================================================================================
+ARCHIVO: apps/api/src/shared/db.ts
+DESCRIPCIÓN: Configuración de conexión a base de datos y cliente Prisma
+================================================================================
+
+// apps/api/src/shared/db.ts
+import { PrismaClient } from '@prisma/client';
+import { logger } from './logger.js'; // CORREGIDO: .js extension for ES modules
+
+// Singleton pattern para Prisma Client
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined;
+};
+
+// Crear instancia con configuración específica
+function createPrismaClient(): PrismaClient {
+  logger.info('🔧 Creando cliente de Prisma...');
+  
+  return new PrismaClient({
+    log: process.env.NODE_ENV === 'development' 
+      ? ['query', 'info', 'warn', 'error']
+      : ['error'],
+  });
+}
+
+// Exportar la instancia única
+export const prisma = globalForPrisma.prisma ?? createPrismaClient();
+
+// Guardar en global para desarrollo
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma;
+}
+
+// Función para probar conexión con reintentos
+export async function testConnection(maxRetries = 3): Promise<boolean> {
+  let retries = 0;
+  
+  while (retries < maxRetries) {
+    try {
+      logger.info(`Intentando conectar a la base de datos (intento ${retries + 1}/${maxRetries})...`);
+      
+      await prisma.$connect();
+      
+      // Verificar conexión con una consulta simple
+      await prisma.$queryRaw`SELECT 1 as connection_test`;
+      
+      logger.info('✅ Conexión a la base de datos establecida correctamente');
+      return true;
+    } catch (error) {
+      retries++;
+      logger.error(`❌ Error de conexión (intento ${retries}/${maxRetries}):`, error);
+      
+      if (retries < maxRetries) {
+        logger.info(`Esperando 2 segundos antes de reintentar...`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      } else {
+        logger.error('❌ No se pudo establecer conexión después de todos los intentos');
+        return false;
+      }
+    }
+  }
+  
+  return false;
+}
+
+// Manejo de cierre limpio
+process.on('beforeExit', async () => {
+  logger.info('Cerrando conexión de Prisma...');
+  await prisma.$disconnect();
+});
+
+================================================================================
+ARCHIVO: apps/api/src/index.ts
+DESCRIPCIÓN: Archivo principal del backend que configura Express y las rutas
+================================================================================
+
+// apps/api/src/index.ts
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { testConnection, prisma } from './shared/db';
+import { logger } from './shared/logger';
+
+// Import routes
+import authRoutes from './modules/auth/auth.routes';
+import userRoutes from './modules/users/user.routes';
+import documentRoutes from './modules/documents/document.routes';
+import preferenceRoutes from './modules/users/preferences.routes';
+
+// Import middleware
+import { apiLimiter, authLimiter } from './core/middleware/rateLimit.middleware';
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// Middleware
+app.use(helmet());
+app.use(cors({
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  credentials: true,
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Rate limiting
+app.use('/api/', apiLimiter);
+app.use('/api/auth/', authLimiter);
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/preferences', preferenceRoutes);
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    message: 'DocuMind AI API is running',
+    timestamp: new Date().toISOString(),
+    database: prisma ? 'connected' : 'disconnected'
+  });
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
+// Error handler
+app.use((error: any, req: any, res: any, next: any) => {
+  logger.error('Server Error:', error);
+  res.status(500).json({ 
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
+  });
+});
+
+// Inicialización del servidor
+async function startServer() {
+  try {
+    // Probar conexión a la base de datos
+    logger.info('🚀 Iniciando DocuMind AI API...');
+    
+    const dbConnected = await testConnection();
+    
+    if (!dbConnected) {
+      throw new Error('No se pudo conectar a la base de datos');
+    }
+
+    app.listen(PORT, () => {
+      logger.info(`✅ Servidor ejecutándose en http://localhost:${PORT}`);
+      logger.info(`📊 Prisma Studio: http://localhost:5555`);
+      logger.info(`🌐 Cliente: ${process.env.CLIENT_URL || 'http://localhost:5173'}`);
+    });
+  } catch (error) {
+    logger.error('❌ Error al iniciar el servidor:', error);
+    process.exit(1);
+  }
+}
+
+// Manejo de cierre limpio
+process.on('SIGINT', async () => {
+  logger.info('🛑 Apagando servidor...');
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  logger.info('🛑 Terminando servidor...');
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+startServer();
+
+export default app;
+
+================================================================================
+RESUMEN DE EXPORTACIÓN
+================================================================================
+
+Total archivos solicitados: 4
+Archivos encontrados: 4
+Archivos no encontrados: 0
+Fecha de finalización: 2025-12-12 17:04:37

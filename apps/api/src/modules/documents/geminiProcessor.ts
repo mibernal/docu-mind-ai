@@ -30,12 +30,13 @@ interface ExtractionFunctions {
 
 export class GeminiProcessor {
   private availableModels = [
-  'gemini-2.5-flash',      // Best for price/performance, high-volume tasks[citation:5]
-  'gemini-2.5-flash-lite', // Fastest, optimized for cost-efficiency[citation:5]
-  'gemini-2.5-pro',        // State-of-the-art for complex reasoning and document analysis[citation:5][citation:8]
-  'gemini-3-pro-preview'   // Most intelligent multimodal model (Preview)[citation:5][citation:9]
-];
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-pro',
+    'gemini-3-pro-preview'
+  ];
   private currentModelIndex = 0;
+  private requestTimeoutMs = parseInt(process.env.AI_REQUEST_TIMEOUT_MS || '20000', 10); // 20s por defecto
 
   private async tryWithNextModel(): Promise<string> {
     if (this.currentModelIndex < this.availableModels.length - 1) {
@@ -61,7 +62,6 @@ VALOR: $280,000,000 + IVA
 DURACIÓN: 8 meses
 FECHA INICIO: 2025-02-01
 FECHA FIN: 2025-09-30`,
-
       `INFORME DE EJECUCIÓN
 CONTRATO: SERV-2025-123-DEF
 CONTRATANTE: Gobernación de Antioquia
@@ -81,34 +81,57 @@ PERIODO: Enero 2025 - Julio 2025`
     }
   }
 
+  // Wrapper con timeout y retry por modelo
   private async makeGeminiRequest(prompt: string, modelName: string): Promise<string> {
-    try {
-      console.log(`Making Gemini request with model: ${modelName}`);
-      
-      const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      
-      return response.text();
+    const attemptRequest = async (model: string) => {
+      try {
+        console.log(`Making Gemini request with model: ${model}`);
+        const modelObj = genAI.getGenerativeModel({ model });
+        const result = await modelObj.generateContent(prompt);
+        // Algunos SDKs devuelven response directo, otros una promesa en result.response
+        const maybeResponse = (result as any).response ?? result;
+        // Soportar ambos: si tiene text() usarlo, si es string devolverlo
+        if (typeof maybeResponse === 'string') return maybeResponse;
+        if (maybeResponse && typeof maybeResponse.text === 'function') {
+          return await maybeResponse.text();
+        }
+        // Fallback: intentar transformar a string
+        return String(maybeResponse);
+      } catch (error: any) {
+        // Lanzar para que el handler superior pueda intentar siguiente modelo
+        throw error;
+      }
+    };
 
+    // Intentar con modelo actual y si falla avanzar al siguiente
+    try {
+      // Envolvemos con timeout
+      const timeoutPromise = new Promise<string>((_, rej) =>
+        setTimeout(() => rej(new Error(`Gemini request timeout after ${this.requestTimeoutMs}ms`)), this.requestTimeoutMs)
+      );
+
+      return await Promise.race([attemptRequest(modelName), timeoutPromise]);
     } catch (error: any) {
-      console.warn(`Model ${modelName} failed:`, error.message);
-      
-      // Intentar con el siguiente modelo
+      console.warn(`Model ${modelName} failed:`, error?.message || error);
+      // Si quedan modelos, probar siguiente
       if (this.currentModelIndex < this.availableModels.length - 1) {
         const nextModel = await this.tryWithNextModel();
         console.log(`Trying next model: ${nextModel}`);
         return this.makeGeminiRequest(prompt, nextModel);
       }
-      
+      // Si no quedan modelos, propagar
       throw new Error('All Gemini models failed');
     }
   }
 
+  // Intenta procesar, reseteando el índice al inicio de cada request
   async processDocument(fileBuffer: Buffer, mimeType: string, filename: string): Promise<ExtractionResult> {
+    // **RESET**: esencial para evitar estado compartido entre requests
+    this.currentModelIndex = 0;
+
     try {
       console.log(`Starting Gemini processing for: ${filename}`);
-      
+
       const extractedText = await this.extractTextWithOCR(fileBuffer, mimeType);
       console.log(`Text extracted (${extractedText.length} chars)`);
 
@@ -124,8 +147,7 @@ PERIODO: Enero 2025 - Julio 2025`
         console.log(`Gemini extraction completed with confidence: ${extractionResult.confidence}`);
 
       } catch (geminiError: any) {
-        console.warn('Gemini processing failed, using fallback:', geminiError.message);
-        
+        console.warn('Gemini processing failed, using fallback:', geminiError?.message || geminiError);
         documentType = this.keywordClassification(extractedText, filename);
         extractionResult = this.fallbackExtraction(extractedText, documentType);
       }
@@ -135,7 +157,7 @@ PERIODO: Enero 2025 - Julio 2025`
         processingEngine: 'gemini'
       };
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Gemini processing error:', error);
       return this.fallbackProcessing('Document processing failed', filename);
     }
@@ -145,15 +167,12 @@ PERIODO: Enero 2025 - Julio 2025`
     try {
       const prompt = `
         Analiza el siguiente texto y nombre de archivo para clasificar el tipo de documento.
-        
+
         Nombre del archivo: ${filename}
         Texto extraído: ${text.substring(0, 1000)}
-        
+
         Clasifica como una de estas opciones: CONTRACT_CERTIFICATION, INVOICE, RECEIPT, CONTRACT, LEGAL, OTHER.
-        
-        CONTRACT_CERTIFICATION es para certificaciones de experiencia laboral, ejecución contractual, 
-        cumplimiento de contratos o documentos similares que certifiquen la experiencia en contratos.
-        
+
         Responde SOLO con una de estas palabras, nada más.
       `;
 
@@ -163,8 +182,8 @@ PERIODO: Enero 2025 - Julio 2025`
       const validTypes: DocumentType[] = ['CONTRACT_CERTIFICATION', 'INVOICE', 'RECEIPT', 'CONTRACT', 'LEGAL', 'OTHER'];
       return validTypes.includes(classification as DocumentType) ? classification : 'OTHER';
 
-    } catch (error) {
-      console.warn('Gemini classification failed, using keyword-based classification');
+    } catch (error: any) {
+      console.warn('Gemini classification failed, using keyword-based classification', error?.message || error);
       return this.keywordClassification(text, filename);
     }
   }
@@ -174,7 +193,7 @@ PERIODO: Enero 2025 - Julio 2025`
       const schemas: SchemaDefinitions = {
         CONTRACT_CERTIFICATION: `{
           "cliente": "string",
-          "contratista": "string", 
+          "contratista": "string",
           "fechaInicio": "YYYY-MM-DD",
           "fechaFin": "YYYY-MM-DD",
           "objeto": "string",
@@ -193,7 +212,7 @@ PERIODO: Enero 2025 - Julio 2025`
         INVOICE: `{
           "invoiceNumber": "string",
           "date": "YYYY-MM-DD",
-          "vendor": "string", 
+          "vendor": "string",
           "customer": "string",
           "items": [{"description": "string", "quantity": "number", "unitPrice": "number", "total": "number"}],
           "subtotal": "number",
@@ -215,48 +234,32 @@ PERIODO: Enero 2025 - Julio 2025`
         Extrae información estructurada del siguiente documento de tipo ${documentType}.
         Responde EXCLUSIVAMENTE con JSON válido usando este esquema:
         ${schemas[documentType as keyof typeof schemas] || schemas.OTHER}
-        
-        Para documentos de tipo CONTRACT_CERTIFICATION, es CRÍTICO que extraigas:
-        - cliente: nombre del cliente o contratante
-        - contratista: nombre del contratista o proveedor
-        - fechaInicio y fechaFin: en formato YYYY-MM-DD
-        - objeto: descripción del objeto contractual
-        - numeroContrato: número de referencia del contrato
-        - valorSinIva: valor numérico sin IVA
-        - valorConIva: valor numérico con IVA incluido
-        - valorSMMLV: valor sin IVA dividido por 1,300,000 (SMMLV 2025)
-        - valorSMMLVIva: valor con IVA dividido por 1,300,000 (SMMLV 2025)
-        - duracionMeses: duración en meses (calculado de las fechas)
-        - actividades: array de actividades realizadas
-        - firmante: persona que firma la certificación
-        - cargoFirmante: cargo del firmante
-        - nitContratista: NIT del contratista si está disponible
-        
+
         Texto del documento:
         ${text.substring(0, 4000)}
-        
+
         IMPORTANTE: Responde solo con JSON válido, sin texto adicional.
-        Para valores en SMMLV, divide los valores en pesos por 1,300,000 (SMMLV 2025).
       `;
 
       const responseText = await this.makeGeminiRequest(prompt, this.availableModels[this.currentModelIndex]);
-      const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
+      const cleanJson = this.extractJSONFromText(responseText);
 
-      let extractedData = {};
+      let extractedData: any = {};
       try {
         extractedData = JSON.parse(cleanJson);
-        
+
         // Post-procesamiento para CONTRACT_CERTIFICATION
         if (documentType === 'CONTRACT_CERTIFICATION') {
           extractedData = this.postProcessContractCertification(extractedData);
         }
-        
-      } catch (parseError) {
-        console.warn('JSON parse failed, using text extraction');
-        extractedData = { 
-          rawText: text.substring(0, 500), 
+
+      } catch (parseError: unknown) {
+        const errorMessage = parseError instanceof Error ? parseError.message : String(parseError);
+        console.warn('JSON parse failed, using text extraction - parseError:', errorMessage);
+        extractedData = {
+          rawText: text.substring(0, 500),
           parseError: 'Failed to parse Gemini response',
-          documentType 
+          documentType
         };
       }
 
@@ -268,10 +271,36 @@ PERIODO: Enero 2025 - Julio 2025`
         documentType
       };
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('Gemini extraction failed:', error);
       return this.fallbackExtraction(text, documentType);
     }
+  }
+
+  // intenta extraer el primer JSON válido dentro del texto devuelto por la IA
+  private extractJSONFromText(text: string): string {
+    if (!text) return '{}';
+    // eliminar markdown fences
+    let candidate = text.replace(/```json\s*|```\s*/gi, '').trim();
+
+    // Buscar el primer bloque JSON (desde primera '{' hasta su '}' correspondiente)
+    const firstBrace = candidate.indexOf('{');
+    if (firstBrace === -1) return candidate;
+
+    // intentar encontrar el cierre válido contando llaves (balance)
+    let depth = 0;
+    for (let i = firstBrace; i < candidate.length; i++) {
+      const ch = candidate[i];
+      if (ch === '{') depth++;
+      if (ch === '}') depth--;
+      if (depth === 0) {
+        const jsonStr = candidate.slice(firstBrace, i + 1);
+        return jsonStr;
+      }
+    }
+
+    // si no encontró cierre balanceado, devolver candidate (el parse fallará y caerá al fallback)
+    return candidate;
   }
 
   private postProcessContractCertification(data: any): any {
@@ -279,7 +308,7 @@ PERIODO: Enero 2025 - Julio 2025`
     if (data.valorSinIva && !data.valorSMMLV) {
       data.valorSMMLV = parseFloat((data.valorSinIva / SMMLV_2025).toFixed(2));
     }
-    
+
     if (data.valorConIva && !data.valorSMMLVIva) {
       data.valorSMMLVIva = parseFloat((data.valorConIva / SMMLV_2025).toFixed(2));
     }
@@ -289,10 +318,10 @@ PERIODO: Enero 2025 - Julio 2025`
       try {
         const start = new Date(data.fechaInicio);
         const end = new Date(data.fechaFin);
-        const months = (end.getFullYear() - start.getFullYear()) * 12 + 
+        const months = (end.getFullYear() - start.getFullYear()) * 12 +
                       (end.getMonth() - start.getMonth());
         data.duracionMeses = Math.max(1, months);
-      } catch (e) {
+      } catch (e: any) {
         console.warn('Could not calculate contract duration');
       }
     }
@@ -308,9 +337,9 @@ PERIODO: Enero 2025 - Julio 2025`
     if (documentType === 'CONTRACT_CERTIFICATION') {
       const criticalFields = ['cliente', 'contratista', 'objeto', 'valorSinIva'];
       const presentCriticalFields = criticalFields.filter(field => data[field]);
-      
+
       baseConfidence = 0.6 + (presentCriticalFields.length * 0.08);
-      
+
       // Bonus por tener valores SMMLV calculados
       if (data.valorSMMLV || data.valorSMMLVIva) {
         baseConfidence += 0.1;
@@ -328,8 +357,7 @@ PERIODO: Enero 2025 - Julio 2025`
     const lowerText = text.toLowerCase();
     const lowerFilename = filename.toLowerCase();
 
-    // Priorizar CONTRACT_CERTIFICATION
-    if (lowerText.includes('certific') || lowerText.includes('experiencia') || 
+    if (lowerText.includes('certific') || lowerText.includes('experiencia') ||
         lowerText.includes('cumplimiento') || lowerText.includes('ejecución') ||
         lowerFilename.includes('certif') || lowerFilename.includes('experiencia')) {
       return 'CONTRACT_CERTIFICATION';
@@ -348,12 +376,12 @@ PERIODO: Enero 2025 - Julio 2025`
 
   private fallbackExtraction(text: string, documentType: string): Omit<ExtractionResult, 'processingEngine'> {
     console.log('Using fallback extraction for:', documentType);
-    
+
     const extractors: ExtractionFunctions = {
       CONTRACT_CERTIFICATION: () => {
         const baseValue = 380000000;
         const iva = baseValue * 0.19;
-        
+
         return {
           cliente: 'MUNICIPIO DE MEDELLÍN',
           contratista: 'ABSICOL SISTEMAS SOLARES S.A.S.',
@@ -399,7 +427,7 @@ PERIODO: Enero 2025 - Julio 2025`
     };
 
     const extractor = (extractors as unknown as Record<string, () => any>)[documentType] || extractors.OTHER;
-    
+
     return {
       extractedData: extractor(),
       confidence: documentType === 'CONTRACT_CERTIFICATION' ? 0.7 : 0.6,
@@ -410,7 +438,7 @@ PERIODO: Enero 2025 - Julio 2025`
   private fallbackProcessing(text: string, filename: string): ExtractionResult {
     const documentType = this.keywordClassification(text, filename);
     const extraction = this.fallbackExtraction(text, documentType);
-    
+
     return {
       ...extraction,
       processingEngine: 'fallback'

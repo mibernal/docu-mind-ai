@@ -94,6 +94,11 @@ export const apiClient = {
     });
   },
 
+    deleteDocument(id: string) {
+    return this.delete(`/documents/${id}`);
+  },
+
+
   // MÉTODOS ESPECÍFICOS PARA DOCUMENTOS
   getDocumentMetrics() {
     return this.get('/documents/metrics');

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Download, FileText, Calendar, Clock, User, Building, DollarSign, CheckCircle, AlertCircle } from "lucide-react";
+import { ArrowLeft, Download, FileText, Calendar, Clock, User, Building, DollarSign, CheckCircle, AlertCircle, Trash2 } from "lucide-react";
 import { Document } from "@/types";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/features/auth/hooks/useAuth";
@@ -220,6 +220,26 @@ export default function DocumentDetail() {
       URL.revokeObjectURL(url);
     }
   };
+
+    const handleDeleteDocument = async () => {
+    if (!currentDocument) return;
+
+    const confirmed = window.confirm(
+      "Are you sure you want to delete this document?\nThis action cannot be undone."
+    );
+
+    if (!confirmed) return;
+
+    try {
+      await apiClient.deleteDocument(currentDocument.id);
+      toast.success("Document deleted successfully");
+      navigate("/documents");
+    } catch (error: any) {
+      console.error("Failed to delete document:", error);
+      toast.error(error.message || "Failed to delete document");
+    }
+  };
+
 
   return (
     <DashboardLayout>
@@ -475,6 +495,16 @@ export default function DocumentDetail() {
                 <CardTitle>Actions</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3">
+
+                <Button
+  className="w-full"
+  variant="destructive"
+  onClick={handleDeleteDocument}
+>
+  <Trash2 className="mr-2 h-4 w-4" />
+  Delete Document
+</Button>
+
                 <Button className="w-full" variant="outline" asChild>
                   <a href={currentDocument.fileUrl} target="_blank" rel="noopener noreferrer">
                     <Download className="mr-2 h-4 w-4" />
