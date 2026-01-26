@@ -1,518 +1,946 @@
-##### EXPORT OF PROJECT FILES #####
-##### Generated automatically #####
+# PROJECT CODE EXPORT
+# Purpose: Debugging & AI Analysis
+# ---------------------------------
 
 
-================================================================================
-FILE: apps/api/src/modules/documents/document.controller.ts
-================================================================================
+==============================
+SECTION: BACKEND
+==============================
 
-//apps\api\src\modules\documents\document.controller.ts
-import { Response } from 'express';
-import { prisma } from "../../shared/db.js";
-import { AuthRequest } from '../../core/middleware/auth.middleware.js';
-import { jsonToString, stringToJson } from "../../shared/json.js";
-import fs from 'fs';
-import path from 'path';
-import { personalizedProcessor } from "./personalizedProcessor.js";
-import { DocumentType, DocumentStatus } from '@prisma/client';
+---
+FILE: apps/api/src/index.ts
+---
+// apps/api/src/index.ts
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import { testConnection, prisma } from './shared/db';
+import { logger } from './shared/logger';
 
-// Interface para estadísticas de documentos por tipo
-interface DocumentTypeCount {
-  documentType: DocumentType;
-  _count: {
-    id: number;
-  };
+// Import routes
+import authRoutes from './modules/auth/auth.routes';
+import userRoutes from './modules/users/user.routes';
+import documentRoutes from './modules/documents/document.routes';
+import preferenceRoutes from './modules/users/preferences.routes';
+
+// Import middleware
+import { apiLimiter, authLimiter } from './core/middleware/rateLimit.middleware';
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// Middleware
+app.use(helmet());
+app.use(cors({
+  origin: process.env.CLIENT_URL || 'http://localhost:5173',
+  credentials: true,
+}));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
+
+// Rate limiting
+app.use('/api/', apiLimiter);
+app.use('/api/auth/', authLimiter);
+
+// Routes
+app.use('/api/auth', authRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/documents', documentRoutes);
+// Preferencias de usuario (montadas bajo /api/users/preferences para coincidir con el frontend)
+app.use('/api/users/preferences', preferenceRoutes);
+
+// Health check
+app.get('/api/health', (req, res) => {
+  res.status(200).json({ 
+    status: 'OK', 
+    message: 'DocuMind AI API is running',
+    timestamp: new Date().toISOString(),
+    database: prisma ? 'connected' : 'disconnected'
+  });
+});
+
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({ error: 'Route not found' });
+});
+
+// Error handler
+app.use((error: any, req: any, res: any, next: any) => {
+  logger.error('Server Error:', error);
+  res.status(500).json({ 
+    error: 'Internal server error',
+    message: process.env.NODE_ENV === 'development' ? error.message : 'Something went wrong'
+  });
+});
+
+// Inicializacin del servidor
+async function startServer() {
+  try {
+    // Probar conexin a la base de datos
+    logger.info(' Iniciando DocuMind AI API...');
+    
+    const dbConnected = await testConnection();
+    
+    if (!dbConnected) {
+      throw new Error('No se pudo conectar a la base de datos');
+    }
+
+    app.listen(PORT, () => {
+      logger.info(` Servidor ejecutndose en http://localhost:${PORT}`);
+      logger.info(` Prisma Studio: http://localhost:5555`);
+      logger.info(` Cliente: ${process.env.CLIENT_URL || 'http://localhost:5173'}`);
+    });
+  } catch (error) {
+    logger.error(' Error al iniciar el servidor:', error);
+    process.exit(1);
+  }
 }
 
-export const uploadDocument = async (req: AuthRequest, res: Response) => {
+// Manejo de cierre limpio
+process.on('SIGINT', async () => {
+  logger.info(' Apagando servidor...');
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+  logger.info(' Terminando servidor...');
+  await prisma.$disconnect();
+  process.exit(0);
+});
+
+startServer();
+
+export default app;
+
+---
+FILE: apps/api/src/modules/auth/auth.routes.ts
+---
+//apps\api\src\modules\auth\auth.routes.ts
+import { Router } from 'express';
+import { register, login, logout, getMe } from './auth.controller';
+import { validate } from '../../core/middleware/validation.middleware';
+import { authMiddleware } from './auth.middleware';
+import { registerSchema, loginSchema } from "../../shared/validation";
+//import { authController } from './auth.controller';
+
+const router = Router();
+
+router.post('/register', validate(registerSchema), register);
+router.post('/login', validate(loginSchema), login);
+router.post('/logout', logout);
+router.get('/me', authMiddleware, getMe);
+
+export default router;
+
+---
+FILE: apps/api/src/modules/auth/auth.controller.ts
+---
+// apps\api\src\modules\auth\auth.controller.ts
+import { Request, Response } from 'express';
+import { prisma } from "../../shared/db";
+import { hashPassword, verifyPassword } from "../../shared/password";
+import { generateToken } from "../../shared/jwt";
+import { AuthRequest } from '../../core/middleware/auth.middleware';
+import { jsonToString } from "../../shared/json";
+
+export const register = async (req: Request, res: Response) => {
+  try {
+    const { email, password, name } = req.body;
+
+    // Check if user already exists
+    const existingUser = await prisma.user.findUnique({
+      where: { email },
+    });
+
+    if (existingUser) {
+      return res.status(400).json({ error: 'User already exists' });
+    }
+
+    // Hash password
+    const hashedPassword = await hashPassword(password);
+
+    // Create default organization
+    const organization = await prisma.organization.create({
+      data: {
+        name: `${name || email}'s Organization`,
+      },
+    });
+
+    // Create user
+    const user = await prisma.user.create({
+      data: {
+        email,
+        password: hashedPassword,
+        name,
+        organizationId: organization.id,
+      },
+    });
+
+    // Create free subscription
+    await prisma.billingSubscription.create({
+      data: {
+        userId: user.id,
+        plan: 'FREE',
+      },
+    });
+
+    // CREATE USER PREFERENCES WITH DEFAULT VALUES
+    // @ts-ignore - Temporal hasta que Prisma se regenere
+    await prisma.userPreferences.create({
+      data: {
+        userId: user.id,
+        useCase: 'CONTRACT_CERTIFICATION',
+        customFields: null,
+      },
+    });
+
+    // CREATE DEFAULT EXTRACTION TEMPLATE FOR USER
+    const defaultTemplate = {
+      fields: [
+        {
+          name: "cliente",
+          type: "text",
+          required: true,
+          description: "Client or contracting entity name"
+        },
+        {
+          name: "contratista",
+          type: "text", 
+          required: true,
+          description: "Contractor or provider name"
+        },
+        {
+          name: "fechaInicio",
+          type: "date",
+          required: true,
+          description: "Contract start date"
+        },
+        {
+          name: "fechaFin",
+          type: "date",
+          required: true,
+          description: "Contract end date"
+        },
+        {
+          name: "objeto",
+          type: "text",
+          required: true,
+          description: "Contract purpose"
+        },
+        {
+          name: "valorSinIva",
+          type: "currency",
+          required: true,
+          description: "Contract value without VAT"
+        },
+        {
+          name: "valorConIva",
+          type: "currency",
+          required: true,
+          description: "Contract value with VAT"
+        }
+      ]
+    };
+
+    // @ts-ignore - Temporal hasta que Prisma se regenere
+    await prisma.extractionTemplate.create({
+      data: {
+        name: 'Basic Contract Certification',
+        description: 'Default template for contract certifications',
+        fields: jsonToString(defaultTemplate),
+        organizationId: organization.id,
+        userId: user.id,
+        isDefault: true,
+        category: 'contract'
+      },
+    });
+
+    // Generate token
+    const token = generateToken({
+      userId: user.id,
+      email: user.email,
+      organizationId: organization.id,
+    });
+
+    res.status(201).json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+      },
+      token,
+    });
+  } catch (error) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const login = async (req: Request, res: Response) => {
+  try {
+    const { email, password } = req.body;
+
+    // Find user with all necessary relations
+    const user = await prisma.user.findUnique({
+      where: { email },
+      include: {
+        organization: true,
+        subscriptions: {
+          take: 1,
+          orderBy: { createdAt: 'desc' }
+        },
+        // @ts-ignore - Temporal
+        preferences: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    // Verify password
+    const isValidPassword = await verifyPassword(password, user.password);
+    if (!isValidPassword) {
+      return res.status(400).json({ error: 'Invalid credentials' });
+    }
+
+    // Generate token
+    const token = generateToken({
+      userId: user.id,
+      email: user.email,
+      organizationId: user.organization.id,
+    });
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        organization: {
+          id: user.organization.id,
+          name: user.organization.name,
+        },
+        plan: user.subscriptions[0]?.plan || 'FREE',
+        preferences: user.preferences ? {
+          useCase: user.preferences.useCase,
+          customFields: user.preferences.customFields ? 
+            JSON.parse(user.preferences.customFields) : null
+        } : null
+      },
+      token,
+    });
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getMe = async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user?.userId },
+      include: {
+        organization: true,
+        subscriptions: {
+          take: 1,
+          orderBy: { createdAt: 'desc' }
+        },
+        // @ts-ignore - Temporal
+        preferences: true,
+        // @ts-ignore - Temporal  
+        customFields: true,
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        organization: {
+          id: user.organization.id,
+          name: user.organization.name,
+        },
+        plan: user.subscriptions[0]?.plan || 'FREE',
+        preferences: user.preferences ? {
+          useCase: user.preferences.useCase,
+          customFields: user.preferences.customFields ? 
+            JSON.parse(user.preferences.customFields) : null
+        } : null,
+        customFields: user.customFields
+      },
+    });
+  } catch (error) {
+    console.error('Get me error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const logout = async (req: Request, res: Response) => {
+  res.json({ message: 'Logged out successfully' });
+};
+
+---
+FILE: apps/api/src/modules/users/user.routes.ts
+---
+// apps/api/src/modules/users/user.routes.ts
+import { Router } from 'express';
+import { 
+  getProfile, 
+  updateProfile, 
+  updateOrganization, 
+  getUsageStats, 
+  deleteAccount 
+} from './user.controller';
+import { authMiddleware } from '../auth/auth.middleware';
+import { validate } from '../../core/middleware/validation.middleware';
+import { updateProfileSchema } from "../../shared/validation";
+import { apiLimiter } from '../../core/middleware/rateLimit.middleware';
+
+const router = Router();
+
+// Aplicar rate limiting
+router.use(apiLimiter);
+
+// Requiere autenticacin
+router.use(authMiddleware);
+
+// Perfil
+router.get('/profile', getProfile);
+router.put('/profile', validate(updateProfileSchema as any), updateProfile);
+
+// Organizacin
+router.put('/organization', updateOrganization);
+
+// Estadsticas
+router.get('/usage', getUsageStats);
+
+// Eliminar cuenta
+router.delete('/account', deleteAccount);
+
+export default router;
+
+---
+FILE: apps/api/src/modules/users/user.controller.ts
+---
+import { Response } from 'express';
+import { prisma } from "../../shared/db";
+import { AuthRequest } from '../../modules/auth/auth.middleware';
+
+export const getProfile = async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user?.userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        createdAt: true,
+        updatedAt: true,
+        organization: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        subscriptions: {
+          select: {
+            id: true,
+            plan: true,
+            currentPeriodStart: true,
+            currentPeriodEnd: true,
+            cancelAtPeriodEnd: true,
+          },
+          take: 1,
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
+      },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    res.json({
+      user: {
+        ...user,
+        plan: user.subscriptions[0]?.plan || 'FREE',
+        subscription: user.subscriptions[0] || null,
+      },
+    });
+  } catch (error) {
+    console.error('Get profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const updateProfile = async (req: AuthRequest, res: Response) => {
+  try {
+    const { name, email } = req.body;
+
+    // Validar que el email no est en uso por otro usuario
+    if (email) {
+      const existingUser = await prisma.user.findFirst({
+        where: {
+          email,
+          id: { not: req.user?.userId },
+        },
+      });
+
+      if (existingUser) {
+        return res.status(400).json({ error: 'Email is already in use' });
+      }
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user?.userId },
+      data: {
+        ...(name && { name }),
+        ...(email && { email }),
+      },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        createdAt: true,
+        updatedAt: true,
+        organization: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        subscriptions: {
+          select: {
+            id: true,
+            plan: true,
+            currentPeriodStart: true,
+            currentPeriodEnd: true,
+          },
+          take: 1,
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
+      },
+    });
+
+    res.json({
+      user: {
+        ...updatedUser,
+        plan: updatedUser.subscriptions[0]?.plan || 'FREE',
+      },
+      message: 'Profile updated successfully',
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const updateOrganization = async (req: AuthRequest, res: Response) => {
+  try {
+    const { name } = req.body;
+
+    if (!name || name.trim().length < 2) {
+      return res.status(400).json({ error: 'Organization name must be at least 2 characters' });
+    }
+
+    // Obtener el usuario para conocer su organizacin
+    const user = await prisma.user.findUnique({
+      where: { id: req.user?.userId },
+      select: { organizationId: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const updatedOrganization = await prisma.organization.update({
+      where: { id: user.organizationId },
+      data: { name: name.trim() },
+    });
+
+    res.json({
+      organization: updatedOrganization,
+      message: 'Organization updated successfully',
+    });
+  } catch (error) {
+    console.error('Update organization error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getUsageStats = async (req: AuthRequest, res: Response) => {
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user?.userId },
+      select: { organizationId: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Obtener estadsticas de documentos
+    const documentStats = await prisma.document.groupBy({
+      by: ['status'],
+      where: {
+        organizationId: user.organizationId,
+        uploadedAt: {
+          gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1), // Este mes
+        },
+      },
+      _count: {
+        id: true,
+      },
+    });
+
+    // Obtener documentos procesados exitosamente
+    const processedDocuments = await prisma.documentProcessing.count({
+      where: {
+        document: {
+          organizationId: user.organizationId,
+          status: 'COMPLETED',
+        },
+      },
+    });
+
+    // Calcular tiempo ahorrado (estimado: 5 minutos por documento procesado)
+    const timeSavedMinutes = processedDocuments * 5;
+    const timeSavedHours = Math.round((timeSavedMinutes / 60) * 100) / 100;
+
+    const stats = {
+      totalDocuments: documentStats.reduce((acc: number, curr: { status: string; _count: { id: number } }) => acc + curr._count.id, 0),
+      processedDocuments,
+      failedDocuments: documentStats.find((stat: { status: string; _count: { id: number } }) => stat.status === 'FAILED')?._count.id || 0,
+      timeSaved: timeSavedHours,
+      successRate: processedDocuments > 0 ? 
+        Math.round((processedDocuments / (processedDocuments + (documentStats.find((stat: { status: string; _count: { id: number } }) => stat.status === 'FAILED')?._count.id || 0)) * 100)) : 0,
+    };
+
+    res.json({ stats });
+  } catch (error) {
+    console.error('Get usage stats error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const deleteAccount = async (req: AuthRequest, res: Response) => {
+  try {
+    // En una implementacin real, podras querer marcar el usuario como inactivo
+    // en lugar de eliminarlo completamente por temas de facturacin y auditora
+    await prisma.user.delete({
+      where: { id: req.user?.userId },
+    });
+
+    res.json({ message: 'Account deleted successfully' });
+  } catch (error) {
+    console.error('Delete account error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+---
+FILE: apps/api/src/modules/users/preferences.routes.ts
+---
+// apps/api/src/modules/users/preferences.routes.ts
+import { Router } from 'express';
+import { 
+  setUserPreferences, 
+  getUserPreferences,
+  updateUserPreferences,
+  getPredefinedTemplates,
+  addCustomField,
+  deleteCustomField
+} from './onboarding.controller';
+import { authMiddleware } from '../auth/auth.middleware';
+import { validate } from '../../core/middleware/validation.middleware';
+import { onboardingSchema, customFieldSchema } from "../../shared/validation";
+
+const router = Router();
+
+// Todas las rutas requieren autenticacin
+router.use(authMiddleware);
+
+// Establecer preferencias (onboarding)
+router.post('/onboarding', validate(onboardingSchema), setUserPreferences);
+
+// Obtener preferencias del usuario
+router.get('/', getUserPreferences);
+
+// Actualizar preferencias
+router.put('/', validate(onboardingSchema), updateUserPreferences);
+
+// Obtener plantillas predefinidas
+router.get('/templates/predefined', getPredefinedTemplates);
+
+// Gestin de campos personalizados
+router.post('/custom-fields', validate(customFieldSchema), addCustomField);
+router.delete('/custom-fields/:id', deleteCustomField);
+
+export default router;
+
+---
+FILE: apps/api/src/modules/users/onboarding.controller.ts
+---
+// src/controllers/onboarding.controller.ts
+import { Response } from 'express';
+import { prisma } from "../../shared/db";
+import { AuthRequest } from '../../core/middleware/auth.middleware';
+import { jsonToString, stringToJson } from "../../shared/json";
+import { templateService } from "../documents/templateService";
+
+export const setUserPreferences = async (req: AuthRequest, res: Response) => {
+  try {
+    const { useCase, customFields, documentTypes } = req.body;
+
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    // Validar que el caso de uso sea vlido
+    const validUseCases = ['CONTRACT_CERTIFICATION', 'INVOICE_PROCESSING', 'LEGAL_DOCUMENTS', 'CUSTOM'];
+    if (!validUseCases.includes(useCase)) {
+      return res.status(400).json({ error: 'Invalid use case' });
+    }
+
+    // Guardar preferencias del usuario
+    const preferences = await prisma.userPreferences.upsert({
+      where: { userId: req.user.userId },
+      update: {
+        useCase,
+        customFields: customFields ? jsonToString(customFields) : null,
+      },
+      create: {
+        userId: req.user.userId,
+        useCase,
+        customFields: customFields ? jsonToString(customFields) : null,
+      },
+    });
+
+    // Crear template personalizado basado en la seleccin
+    if (useCase === 'CUSTOM' && customFields) {
+      await prisma.extractionTemplate.create({
+        data: {
+          name: 'Template Personalizado',
+          description: 'Template creado basado en sus preferencias',
+          fields: jsonToString({
+            fields: customFields,
+            metadata: { generatedFrom: 'onboarding' }
+          }),
+          userId: req.user.userId,
+          organizationId: req.user.organizationId,
+          isDefault: true,
+          category: 'personalized'
+        },
+      });
+    } else if (useCase !== 'CUSTOM') {
+      // Crear template predefinido basado en el caso de uso
+      await templateService.createUserTemplateFromPreferences(req.user.userId, useCase, req.user.organizationId);
+    }
+
+    // Si hay campos personalizados, guardarlos en la tabla custom_fields
+    if (customFields && customFields.length > 0) {
+      for (const field of customFields) {
+        await prisma.customField.upsert({
+          where: {
+            userId_name: {
+              userId: req.user.userId,
+              name: field.name
+            }
+          },
+          update: {
+            type: field.type,
+            description: field.description,
+          },
+          create: {
+            userId: req.user.userId,
+            name: field.name,
+            type: field.type,
+            description: field.description,
+          },
+        });
+      }
+    }
+
+    res.json({ 
+      success: true,
+      message: 'Preferencias guardadas exitosamente',
+      preferences: {
+        useCase: preferences.useCase,
+        customFields: stringToJson(preferences.customFields)
+      }
+    });
+  } catch (error) {
+    console.error('Set preferences error:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+export const getUserPreferences = async (req: AuthRequest, res: Response) => {
   try {
     if (!req.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded' });
-    }
+    const preferences = await prisma.userPreferences.findUnique({
+      where: { userId: req.user.userId },
+    });
 
-    const { originalname, mimetype, size, filename } = req.file;
-    const filePath = path.join(process.env.UPLOAD_PATH || './uploads', filename);
+    const customFields = await prisma.customField.findMany({
+      where: { userId: req.user.userId },
+      orderBy: { createdAt: 'desc' }
+    });
 
-    // Verificar que el archivo existe en disco
-    if (!fs.existsSync(filePath)) {
-      return res.status(400).json({ error: 'Uploaded file not found' });
-    }
-
-    // Crear documento en la base de datos
-    const document = await prisma.document.create({
-      data: {
-        filename: originalname,
-        fileUrl: `/uploads/${filename}`,
-        fileSize: size,
-        fileType: mimetype,
-        documentType: DocumentType.OTHER,
-        status: DocumentStatus.PENDING,
-        userId: req.user.userId,
-        organizationId: req.user.organizationId,
+    // Obtener templates del usuario
+    const userTemplates = await prisma.extractionTemplate.findMany({
+      where: {
+        OR: [
+          { userId: req.user.userId },
+          { userId: null, organizationId: req.user.organizationId } // Templates de sistema
+        ]
       },
+      orderBy: { isDefault: 'desc' }
     });
 
-    // Leer archivo desde disco para procesamiento
-    const fileBuffer = fs.readFileSync(filePath);
-
-    // Procesamiento asíncrono en segundo plano
-    processWithUserPreferences(document.id, fileBuffer, mimetype, originalname, req.user.userId);
-
-    res.status(201).json({
-      documentId: document.id,
-      filename: originalname,
-      message: 'Document uploaded successfully. Personalized AI processing started.',
-      status: 'PROCESSING'
-    });
-  } catch (error: any) {
-    console.error('Upload document error:', error);
-    res.status(500).json({ error: 'Internal server error', details: error.message });
-  }
-};
-
-async function processWithUserPreferences(documentId: string, fileBuffer: Buffer, mimeType: string, filename: string, userId: string) {
-  try {
-    // Actualizar estado a procesando
-    await prisma.document.update({
-      where: { id: documentId },
-      data: { status: DocumentStatus.PROCESSING },
-    });
-
-    console.log(`Starting personalized processing for document: ${documentId}`);
-
-    // Procesar con preferencias del usuario
-    const result = await personalizedProcessor.processWithUserPreferences(
-      fileBuffer, mimeType, filename, userId
-    );
-
-    console.log(`Processing completed for document: ${documentId}`, {
-      documentType: result.documentType,
-      confidence: result.confidence,
-      engine: result.processingEngine,
-      fieldsMatched: result.userFieldsMatched
-    });
-
-    // Validar y convertir documentType
-    const documentTypeMap: Record<string, DocumentType> = {
-      'invoice': DocumentType.INVOICE,
-      'receipt': DocumentType.RECEIPT,
-      'contract': DocumentType.CONTRACT,
-      'contract_certification': DocumentType.CONTRACT_CERTIFICATION,
-      'other': DocumentType.OTHER,
-      'INVOICE': DocumentType.INVOICE,
-      'RECEIPT': DocumentType.RECEIPT,
-      'CONTRACT': DocumentType.CONTRACT,
-      'CONTRACT_CERTIFICATION': DocumentType.CONTRACT_CERTIFICATION,
-      'OTHER': DocumentType.OTHER,
-    };
-
-    const validDocumentType = documentTypeMap[result.documentType] || DocumentType.OTHER;
-
-    // Actualizar estado del documento
-    await prisma.document.update({
-      where: { id: documentId },
-      data: {
-        status: DocumentStatus.COMPLETED,
-        documentType: validDocumentType,
-        processedAt: new Date(),
-      },
-    });
-
-    // Crear registro de procesamiento
-    await prisma.documentProcessing.create({
-      data: {
-        documentId: documentId,
-        extractedData: jsonToString({
-          ...result.extractedData,
-          _metadata: {
-            userFieldsMatched: result.userFieldsMatched,
-            personalizedProcessing: true,
-            processingTimestamp: new Date().toISOString(),
-            processingEngine: result.processingEngine,
-            confidence: result.confidence
-          }
-        }),
-        confidence: result.confidence,
-        processingEngine: result.processingEngine,
-        startedAt: new Date(),
-        completedAt: new Date(),
-      },
-    });
-
-    console.log(`Document ${documentId} processed successfully with user preferences`);
-  } catch (error: any) {
-    console.error('Personalized processing error:', error);
-    
-    // Manejo de errores
-    await prisma.document.update({
-      where: { id: documentId },
-      data: { 
-        status: DocumentStatus.FAILED,
-        processedAt: new Date(),
-      },
-    });
-
-    await prisma.documentProcessing.create({
-      data: {
-        documentId: documentId,
-        error: error.message || 'Unknown processing error',
-        startedAt: new Date(),
-        completedAt: new Date(),
-      },
-    });
-
-    console.error(`Failed to process document ${documentId}:`, {
-      error: error.message,
-      stack: error.stack
-    });
-  }
-}
-
-export const getDocuments = async (req: AuthRequest, res: Response) => {
-  try {
-    const { page = '1', limit = '10', type, status, search } = req.query;
-    const pageNum = parseInt(page as string);
-    const limitNum = parseInt(limit as string);
-    const skip = (pageNum - 1) * limitNum;
-
-    const where: any = {
-      userId: req.user?.userId,
-    };
-
-    if (type && type !== 'all') {
-      // Convertir string a valor enum
-      const typeUpper = (type as string).toUpperCase();
-      if (Object.values(DocumentType).includes(typeUpper as DocumentType)) {
-        where.documentType = typeUpper;
-      }
-    }
-
-    if (status && status !== 'all') {
-      // Convertir string a valor enum
-      const statusUpper = (status as string).toUpperCase();
-      if (Object.values(DocumentStatus).includes(statusUpper as DocumentStatus)) {
-        where.status = statusUpper;
-      }
-    }
-
-    if (search) {
-      where.filename = {
-        contains: search as string,
-        mode: 'insensitive'
-      };
-    }
-
-    const [documents, total] = await Promise.all([
-      prisma.document.findMany({
-        where,
-        skip,
-        take: limitNum,
-        orderBy: { uploadedAt: 'desc' },
-        include: {
-          processing: {
-            select: {
-              confidence: true,
-              completedAt: true,
-              processingEngine: true
-            }
-          }
-        }
-      }),
-      prisma.document.count({ where })
-    ]);
-
-    const formattedDocuments = documents.map((doc) => ({
-      id: doc.id,
-      filename: doc.filename,
-      type: doc.documentType.toLowerCase(),
-      status: doc.status.toLowerCase(),
-      uploadedAt: doc.uploadedAt.toISOString(),
-      processedAt: doc.processedAt?.toISOString(),
-      confidence: doc.processing?.confidence,
-      processingEngine: doc.processing?.processingEngine,
-      fileSize: doc.fileSize,
-      fileType: doc.fileType,
-      fileUrl: doc.fileUrl,
+    const formattedTemplates = userTemplates.map((template: (typeof userTemplates)[number]) => ({
+      ...template,
+      fields: stringToJson(template.fields)
     }));
 
     res.json({
-      success: true,
-      data: {
-        documents: formattedDocuments,
-        total,
-        page: pageNum,
-        totalPages: Math.ceil(total / limitNum),
-        limit: limitNum
-      }
+      preferences: preferences ? {
+        useCase: preferences.useCase,
+        customFields: stringToJson(preferences.customFields)
+      } : null,
+      customFields,
+      templates: formattedTemplates
     });
-  } catch (error: any) {
-    console.error('Get documents error:', error);
-    res.status(500).json({ success: false, error: 'Internal server error', details: error.message });
+  } catch (error) {
+    console.error('Get preferences error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-export const getDocument = async (req: AuthRequest, res: Response) => {
+export const updateUserPreferences = async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const { useCase, customFields } = req.body;
 
-    const document = await prisma.document.findFirst({
-      where: {
-        id,
-        userId: req.user?.userId,
-      },
-      include: {
-        processing: true,
-      },
-    });
-
-    if (!document) {
-      return res.status(404).json({ success: false, error: 'Document not found' });
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const extractedData = document.processing ? 
-      stringToJson(document.processing.extractedData) : null;
+    const updatedPreferences = await prisma.userPreferences.update({
+      where: { userId: req.user.userId },
+      data: {
+        useCase,
+        customFields: customFields ? jsonToString(customFields) : null,
+      },
+    });
 
     res.json({
       success: true,
-      data: {
-        document: {
-          id: document.id,
-          filename: document.filename,
-          type: document.documentType.toLowerCase(),
-          status: document.status.toLowerCase(),
-          uploadedAt: document.uploadedAt.toISOString(),
-          processedAt: document.processedAt?.toISOString(),
-          confidence: document.processing?.confidence,
-          processingEngine: document.processing?.processingEngine,
-          extractedData,
-          fileUrl: document.fileUrl,
-          fileSize: document.fileSize,
-          fileType: document.fileType,
-        },
+      message: 'Preferencias actualizadas exitosamente',
+      preferences: {
+        useCase: updatedPreferences.useCase,
+        customFields: stringToJson(updatedPreferences.customFields)
       }
     });
-  } catch (error: any) {
-    console.error('Get document error:', error);
-    res.status(500).json({ success: false, error: 'Internal server error', details: error.message });
+  } catch (error) {
+    console.error('Update preferences error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-export const getDocumentMetrics = async (req: AuthRequest, res: Response) => {
+export const getPredefinedTemplates = async (req: AuthRequest, res: Response) => {
   try {
-    const userId = req.user?.userId;
-
-    const [
-      totalDocuments,
-      completedDocuments,
-      failedDocuments,
-      documentsByType,
-      averageProcessingTimeResult
-    ] = await Promise.all([
-      prisma.document.count({ where: { userId } }),
-      prisma.document.count({ 
-        where: { 
-          userId, 
-          status: DocumentStatus.COMPLETED
-        } 
-      }),
-      prisma.document.count({ 
-        where: { 
-          userId, 
-          status: DocumentStatus.FAILED
-        } 
-      }),
-      prisma.document.groupBy({
-        by: ['documentType'],
-        where: { userId },
-        _count: {
-          id: true,
-        },
-      }),
-      // Calcular tiempo promedio de procesamiento
-      prisma.documentProcessing.aggregate({
-        where: {
-          document: { userId },
-          completedAt: { not: null },
-          startedAt: { not: null }
-        },
-        _avg: {
-          confidence: true
-        }
-      })
-    ]);
-
-    const successRate = totalDocuments > 0 ? 
-      Math.round((completedDocuments / totalDocuments) * 100) : 0;
-    
-    // Calcular tiempo ahorrado (estimado: 5 minutos por documento)
-    const timeSaved = completedDocuments * 5;
-    
-    // Tiempo promedio de procesamiento (en segundos, valor estimado si no hay datos reales)
-    const averageProcessingTime = averageProcessingTimeResult._avg.confidence ? 
-      2.3 : 2.3;
-
-    const stats = {
-      totalDocuments,
-      processedDocuments: completedDocuments,
-      failedDocuments,
-      timeSaved,
-      successRate,
-      averageProcessingTime,
-      documentsByType: documentsByType.map((item: DocumentTypeCount) => ({
-        type: item.documentType.toLowerCase(),
-        count: item._count.id,
-      })),
+    const predefinedTemplates = {
+      CONTRACT_CERTIFICATION: templateService.getPredefinedTemplate('CONTRACT_CERTIFICATION'),
+      INVOICE_PROCESSING: templateService.getPredefinedTemplate('INVOICE_PROCESSING'),
+      LEGAL_DOCUMENTS: templateService.getPredefinedTemplate('LEGAL_DOCUMENTS')
     };
 
-    res.json({ 
-      success: true,
-      data: { stats } 
-    });
-  } catch (error: any) {
-    console.error('Get document metrics error:', error);
-    res.status(500).json({ 
-      success: false, 
-      error: 'Internal server error', 
-      details: error.message 
-    });
+    res.json({ predefinedTemplates });
+  } catch (error) {
+    console.error('Get predefined templates error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-export const getDocumentStatus = async (req: AuthRequest, res: Response) => {
+export const addCustomField = async (req: AuthRequest, res: Response) => {
   try {
-    const { id } = req.params;
+    const { name, type, description } = req.body;
 
-    const document = await prisma.document.findFirst({
-      where: {
-        id,
-        userId: req.user?.userId,
-      },
-      select: {
-        id: true,
-        status: true,
-        processedAt: true,
-        processing: {
-          select: {
-            confidence: true,
-            completedAt: true,
-            error: true,
-          }
-        }
-      }
-    });
-
-    if (!document) {
-      return res.status(404).json({ success: false, error: 'Document not found' });
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
+
+    const customField = await prisma.customField.create({
+      data: {
+        userId: req.user.userId,
+        name,
+        type,
+        description,
+      },
+    });
 
     res.json({
       success: true,
-      data: {
-        id: document.id,
-        status: document.status.toLowerCase(),
-        processedAt: document.processedAt?.toISOString(),
-        confidence: document.processing?.confidence,
-        error: document.processing?.error,
-      }
+      message: 'Campo personalizado agregado exitosamente',
+      customField
     });
-  } catch (error: any) {
-    console.error('Get document status error:', error);
-    res.status(500).json({ success: false, error: 'Internal server error', details: error.message });
+  } catch (error) {
+    console.error('Add custom field error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-// Nuevo método para eliminar documento
-export const deleteDocument = async (req: AuthRequest, res: Response) => {
+export const deleteCustomField = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    const document = await prisma.document.findFirst({
-      where: {
-        id,
-        userId: req.user?.userId,
-      },
-    });
-
-    if (!document) {
-      return res.status(404).json({ success: false, error: 'Document not found' });
+    if (!req.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    // Eliminar archivo físico si existe
-    const filePath = path.join(process.env.UPLOAD_PATH || './uploads', document.fileUrl.replace('/uploads/', ''));
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    // Verificar que el campo exista y pertenezca al usuario
+    const field = await prisma.customField.findUnique({
+      where: { id },
+    });
+
+    if (!field) {
+      return res.status(404).json({ error: 'Custom field not found' });
     }
 
-    // Eliminar registro de base de datos
-    await prisma.documentProcessing.deleteMany({
-      where: { documentId: id }
+    if (field.userId !== req.user.userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
+    await prisma.customField.delete({
+      where: { id },
     });
 
-    await prisma.document.delete({
-      where: { id }
+    res.json({
+      success: true,
+      message: 'Campo personalizado eliminado exitosamente'
     });
-
-    res.json({ 
-      success: true, 
-      message: 'Document deleted successfully' 
-    });
-  } catch (error: any) {
-    console.error('Delete document error:', error);
-    res.status(500).json({ success: false, error: 'Internal server error', details: error.message });
+  } catch (error) {
+    console.error('Delete custom field error:', error);
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-
-================================================================================
-FILE: apps/api/src/modules/documents/document.routes.ts
-================================================================================
-
-//apps\api\src\modules\documents\document.routes.ts
-import { Router } from 'express';
-import { 
-  uploadDocument, 
-  getDocuments, 
-  getDocument, 
-  getDocumentMetrics,
-  getDocumentStatus,
-  deleteDocument
-} from './document.controller';
-import { authMiddleware } from '../auth/auth.middleware';
-import { uploadLimiter } from '../../core/middleware/rateLimit.middleware';
-import { upload, handleUploadError } from '../../core/middleware/upload.middleware';
-
-const router = Router();
-
-// Todas las rutas requieren autenticación
-router.use(authMiddleware);
-
-// Ruta de upload con multer
-router.post(
-  '/upload', 
-  uploadLimiter,
-  upload.single('document'),
-  handleUploadError,
-  uploadDocument
-);
-
-// Rutas CRUD para documentos
-router.get('/', getDocuments);
-router.get('/metrics', getDocumentMetrics);
-router.get('/:id', getDocument);
-router.get('/:id/status', getDocumentStatus);
-router.delete('/:id', deleteDocument);
-
-export default router;
-
-
-================================================================================
+---
 FILE: apps/api/src/core/middleware/auth.middleware.ts
-================================================================================
-
+---
 import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '../../shared/jwt';
 
@@ -540,12 +968,9 @@ export const authMiddleware = (req: AuthRequest, res: Response, next: NextFuncti
   }
 };
 
-
-
-================================================================================
+---
 FILE: apps/api/src/shared/jwt.ts
-================================================================================
-
+---
 import jwt from 'jsonwebtoken';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'documind-ai-secret-key';
@@ -558,7 +983,7 @@ export interface TokenPayload {
 }
 
 export const generateToken = (payload: TokenPayload): string => {
-  // Solución: convertir expiresIn al tipo correcto
+  // Solucin: convertir expiresIn al tipo correcto
   const expiresIn = JWT_EXPIRES_IN as jwt.SignOptions['expiresIn'];
   
   return jwt.sign(payload, JWT_SECRET, { expiresIn });
@@ -568,11 +993,9 @@ export const verifyToken = (token: string): TokenPayload => {
   return jwt.verify(token, JWT_SECRET) as TokenPayload;
 };
 
-
-================================================================================
+---
 FILE: apps/api/src/prisma/schema.prisma
-================================================================================
-
+---
 generator client {
   provider = "prisma-client-js"
 }
@@ -771,1306 +1194,13 @@ model CustomField {
   @@map("custom_fields")
 }
 
-
-================================================================================
-FILE: apps/api/src/modules/documents/personalizedProcessor.ts
-================================================================================
-
-// src/services/personalizedProcessor.ts
-import { unifiedAIProcessor } from "./unifiedAIProcessor";
-import { prisma } from "../../shared/db";
-
-interface PersonalizedExtractionResult {
-  extractedData: Record<string, any>;
-  confidence: number;
-  documentType: string;
-  processingEngine: string;
-  userFieldsMatched: string[];
-}
-
-export class PersonalizedProcessor {
-  async processWithUserPreferences(
-    fileBuffer: Buffer, 
-    mimeType: string, 
-    filename: string, 
-    userId: string
-  ): Promise<PersonalizedExtractionResult> {
-    
-    // Obtener preferencias del usuario
-    const userPreferences = await prisma.userPreferences.findUnique({
-      where: { userId }
-    });
-
-    // Procesar documento normalmente primero
-    const baseResult = await unifiedAIProcessor.processDocument(fileBuffer, mimeType, filename);
-    
-    // Aplicar personalización basada en preferencias
-    if (userPreferences) {
-      return this.applyUserPreferences(baseResult, userPreferences, filename);
-    }
-
-    return {
-      ...baseResult,
-      userFieldsMatched: Object.keys(baseResult.extractedData)
-    };
-  }
-
-  private applyUserPreferences(
-    baseResult: any, 
-    userPreferences: any, 
-    filename: string
-  ): PersonalizedExtractionResult {
-    
-    const userFields = userPreferences.customFields ? 
-      JSON.parse(userPreferences.customFields) : [];
-    
-    let filteredData: Record<string, any> = {};
-    const matchedFields: string[] = [];
-
-    // Filtrar y priorizar campos que el usuario quiere
-    if (userFields.length > 0) {
-      userFields.forEach((field: any) => {
-        const fieldName = field.name;
-        if (baseResult.extractedData[fieldName] !== undefined) {
-          filteredData[fieldName] = baseResult.extractedData[fieldName];
-          matchedFields.push(fieldName);
-        }
-      });
-    } else {
-      // Si no hay campos personalizados, usar todos los campos extraídos
-      filteredData = baseResult.extractedData;
-      matchedFields.push(...Object.keys(baseResult.extractedData));
-    }
-
-    // Ajustar confianza basada en cuántos campos requeridos coincidieron
-    const requiredFields = userFields.filter((f: any) => f.required);
-    const requiredMatched = requiredFields.filter((f: any) => 
-      matchedFields.includes(f.name)
-    ).length;
-
-    const matchRatio = requiredFields.length > 0 ? 
-      requiredMatched / requiredFields.length : 1;
-
-    const adjustedConfidence = baseResult.confidence * matchRatio;
-
-    return {
-      extractedData: filteredData,
-      confidence: adjustedConfidence,
-      documentType: baseResult.documentType,
-      processingEngine: `${baseResult.processingEngine}_personalized`,
-      userFieldsMatched: matchedFields
-    };
-  }
-
-  // Generar prompt personalizado para IA basado en campos del usuario
-  generateCustomPrompt(userFields: any[], documentType: string): string {
-    const fieldDescriptions = userFields.map(field => 
-      `- ${field.name}: ${field.description || 'Sin descripción'} (tipo: ${field.type})`
-    ).join('\n');
-
-    return `
-      Extrae SOLO la siguiente información del documento. 
-      Si no encuentras algún campo, déjalo vacío o usa null.
-      
-      Campos requeridos por el usuario:
-      ${fieldDescriptions}
-
-      Tipo de documento: ${documentType}
-
-      Responde EXCLUSIVAMENTE con un JSON que contenga estos campos.
-      Para campos numéricos, convierte a números.
-      Para fechas, usa formato YYYY-MM-DD.
-    `;
-  }
-}
-
-export const personalizedProcessor = new PersonalizedProcessor();
-
-
-================================================================================
-FILE: apps/api/src/modules/documents/unifiedAIProcessor.ts
-================================================================================
-
-//server\src\services\unifiedAIProcessor.ts
-import { geminiProcessor } from "./geminiProcessor";
-import { fallbackProcessor } from "./fallbackProcessor";
-
-interface ExtractionResult {
-  extractedData: Record<string, any>;
-  confidence: number;
-  documentType: string;
-  processingEngine: string;
-}
-
-export class UnifiedAIProcessor {
-  async processDocument(fileBuffer: Buffer, mimeType: string, filename: string): Promise<ExtractionResult> {
-    const preferredEngine = process.env.PREFERRED_AI_ENGINE || 'fallback';
-
-    console.log(`Using AI engine: ${preferredEngine}`);
-
-    try {
-      if (preferredEngine === 'gemini') {
-        return await geminiProcessor.processDocument(fileBuffer, mimeType, filename);
-      } else {
-        // Use enhanced fallback
-        return await fallbackProcessor.processDocument(fileBuffer, mimeType, filename);
-      }
-    } catch (error) {
-      console.error(`Primary engine failed, using enhanced fallback:`, error);
-      return await fallbackProcessor.processDocument(fileBuffer, mimeType, filename);
-    }
-  }
-}
-
-export const unifiedAIProcessor = new UnifiedAIProcessor();
-
-
-================================================================================
-FILE: apps/api/src/modules/documents/geminiProcessor.ts
-================================================================================
-
-import { GoogleGenerativeAI } from "@google/generative-ai";
-
-// Configuración con la librería actual
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'free-tier');
-
-interface ExtractionResult {
-  extractedData: Record<string, any>;
-  confidence: number;
-  documentType: string;
-  processingEngine: string;
-}
-
-// Constante para SMMLV 2025
-const SMMLV_2025 = 1300000;
-
-// Definir tipos para las claves
-type DocumentType = 'CONTRACT_CERTIFICATION' | 'INVOICE' | 'RECEIPT' | 'CONTRACT' | 'LEGAL' | 'OTHER';
-
-interface SchemaDefinitions {
-  CONTRACT_CERTIFICATION: string;
-  INVOICE: string;
-  OTHER: string;
-}
-
-interface ExtractionFunctions {
-  CONTRACT_CERTIFICATION: () => any;
-  INVOICE: () => any;
-  OTHER: () => any;
-}
-
-export class GeminiProcessor {
-  private availableModels = [
-  'gemini-2.5-flash',      // Best for price/performance, high-volume tasks[citation:5]
-  'gemini-2.5-flash-lite', // Fastest, optimized for cost-efficiency[citation:5]
-  'gemini-2.5-pro',        // State-of-the-art for complex reasoning and document analysis[citation:5][citation:8]
-  'gemini-3-pro-preview'   // Most intelligent multimodal model (Preview)[citation:5][citation:9]
-];
-  private currentModelIndex = 0;
-
-  private async tryWithNextModel(): Promise<string> {
-    if (this.currentModelIndex < this.availableModels.length - 1) {
-      this.currentModelIndex++;
-      return this.availableModels[this.currentModelIndex];
-    }
-    throw new Error('All Gemini models failed');
-  }
-
-  private async extractTextWithOCR(fileBuffer: Buffer, mimeType: string): Promise<string> {
-    console.log(`Processing ${mimeType} file with OCR simulation`);
-    return this.generateSimulatedText(mimeType);
-  }
-
-  private generateSimulatedText(mimeType: string): string {
-    const contractCertifications = [
-      `CERTIFICACIÓN DE CUMPLIMIENTO CONTRACTUAL
-CONTRATO No. CT-2025-456-ABC
-CLIENTE: Ministerio de Ambiente
-CONTRATISTA: EcoSoluciones S.A.S.
-OBJETO: "Implementación de sistema de gestión ambiental"
-VALOR: $280,000,000 + IVA
-DURACIÓN: 8 meses
-FECHA INICIO: 2025-02-01
-FECHA FIN: 2025-09-30`,
-
-      `INFORME DE EJECUCIÓN
-CONTRATO: SERV-2025-123-DEF
-CONTRATANTE: Gobernación de Antioquia
-CONTRATISTA: Tecnología Avanzada Ltda.
-OBJETO: Desarrollo de plataforma digital
-VALOR: $520,000,000
-IVA: $98,800,000
-TOTAL: $618,800,000
-PERIODO: Enero 2025 - Julio 2025`
-    ];
-
-    if (mimeType === 'application/pdf') {
-      const docs = [...contractCertifications];
-      return docs[Math.floor(Math.random() * docs.length)];
-    } else {
-      return contractCertifications[0];
-    }
-  }
-
-  private async makeGeminiRequest(prompt: string, modelName: string): Promise<string> {
-    try {
-      console.log(`Making Gemini request with model: ${modelName}`);
-      
-      const model = genAI.getGenerativeModel({ model: modelName });
-      const result = await model.generateContent(prompt);
-      const response = await result.response;
-      
-      return response.text();
-
-    } catch (error: any) {
-      console.warn(`Model ${modelName} failed:`, error.message);
-      
-      // Intentar con el siguiente modelo
-      if (this.currentModelIndex < this.availableModels.length - 1) {
-        const nextModel = await this.tryWithNextModel();
-        console.log(`Trying next model: ${nextModel}`);
-        return this.makeGeminiRequest(prompt, nextModel);
-      }
-      
-      throw new Error('All Gemini models failed');
-    }
-  }
-
-  async processDocument(fileBuffer: Buffer, mimeType: string, filename: string): Promise<ExtractionResult> {
-    try {
-      console.log(`Starting Gemini processing for: ${filename}`);
-      
-      const extractedText = await this.extractTextWithOCR(fileBuffer, mimeType);
-      console.log(`Text extracted (${extractedText.length} chars)`);
-
-      let documentType: string;
-      let extractionResult: Omit<ExtractionResult, 'processingEngine'>;
-
-      try {
-        // Intentar con Gemini primero
-        documentType = await this.classifyWithGemini(extractedText, filename);
-        console.log(`Document classified as: ${documentType}`);
-
-        extractionResult = await this.extractWithGemini(extractedText, documentType);
-        console.log(`Gemini extraction completed with confidence: ${extractionResult.confidence}`);
-
-      } catch (geminiError: any) {
-        console.warn('Gemini processing failed, using fallback:', geminiError.message);
-        
-        documentType = this.keywordClassification(extractedText, filename);
-        extractionResult = this.fallbackExtraction(extractedText, documentType);
-      }
-
-      return {
-        ...extractionResult,
-        processingEngine: 'gemini'
-      };
-
-    } catch (error) {
-      console.error('Gemini processing error:', error);
-      return this.fallbackProcessing('Document processing failed', filename);
-    }
-  }
-
-  private async classifyWithGemini(text: string, filename: string): Promise<string> {
-    try {
-      const prompt = `
-        Analiza el siguiente texto y nombre de archivo para clasificar el tipo de documento.
-        
-        Nombre del archivo: ${filename}
-        Texto extraído: ${text.substring(0, 1000)}
-        
-        Clasifica como una de estas opciones: CONTRACT_CERTIFICATION, INVOICE, RECEIPT, CONTRACT, LEGAL, OTHER.
-        
-        CONTRACT_CERTIFICATION es para certificaciones de experiencia laboral, ejecución contractual, 
-        cumplimiento de contratos o documentos similares que certifiquen la experiencia en contratos.
-        
-        Responde SOLO con una de estas palabras, nada más.
-      `;
-
-      const responseText = await this.makeGeminiRequest(prompt, this.availableModels[this.currentModelIndex]);
-      const classification = responseText.trim().toUpperCase();
-
-      const validTypes: DocumentType[] = ['CONTRACT_CERTIFICATION', 'INVOICE', 'RECEIPT', 'CONTRACT', 'LEGAL', 'OTHER'];
-      return validTypes.includes(classification as DocumentType) ? classification : 'OTHER';
-
-    } catch (error) {
-      console.warn('Gemini classification failed, using keyword-based classification');
-      return this.keywordClassification(text, filename);
-    }
-  }
-
-  private async extractWithGemini(text: string, documentType: string): Promise<Omit<ExtractionResult, 'processingEngine'>> {
-    try {
-      const schemas: SchemaDefinitions = {
-        CONTRACT_CERTIFICATION: `{
-          "cliente": "string",
-          "contratista": "string", 
-          "fechaInicio": "YYYY-MM-DD",
-          "fechaFin": "YYYY-MM-DD",
-          "objeto": "string",
-          "numeroContrato": "string",
-          "valorSinIva": "number",
-          "valorConIva": "number",
-          "valorSMMLV": "number",
-          "valorSMMLVIva": "number",
-          "duracionMeses": "number",
-          "actividades": ["string"],
-          "firmante": "string",
-          "cargoFirmante": "string",
-          "nitContratista": "string"
-        }`,
-
-        INVOICE: `{
-          "invoiceNumber": "string",
-          "date": "YYYY-MM-DD",
-          "vendor": "string", 
-          "customer": "string",
-          "items": [{"description": "string", "quantity": "number", "unitPrice": "number", "total": "number"}],
-          "subtotal": "number",
-          "taxAmount": "number",
-          "total": "number",
-          "currency": "string"
-        }`,
-
-        OTHER: `{
-          "keyPoints": ["string"],
-          "dates": ["YYYY-MM-DD"],
-          "amounts": ["number"],
-          "parties": ["string"],
-          "summary": "string"
-        }`
-      };
-
-      const prompt = `
-        Extrae información estructurada del siguiente documento de tipo ${documentType}.
-        Responde EXCLUSIVAMENTE con JSON válido usando este esquema:
-        ${schemas[documentType as keyof typeof schemas] || schemas.OTHER}
-        
-        Para documentos de tipo CONTRACT_CERTIFICATION, es CRÍTICO que extraigas:
-        - cliente: nombre del cliente o contratante
-        - contratista: nombre del contratista o proveedor
-        - fechaInicio y fechaFin: en formato YYYY-MM-DD
-        - objeto: descripción del objeto contractual
-        - numeroContrato: número de referencia del contrato
-        - valorSinIva: valor numérico sin IVA
-        - valorConIva: valor numérico con IVA incluido
-        - valorSMMLV: valor sin IVA dividido por 1,300,000 (SMMLV 2025)
-        - valorSMMLVIva: valor con IVA dividido por 1,300,000 (SMMLV 2025)
-        - duracionMeses: duración en meses (calculado de las fechas)
-        - actividades: array de actividades realizadas
-        - firmante: persona que firma la certificación
-        - cargoFirmante: cargo del firmante
-        - nitContratista: NIT del contratista si está disponible
-        
-        Texto del documento:
-        ${text.substring(0, 4000)}
-        
-        IMPORTANTE: Responde solo con JSON válido, sin texto adicional.
-        Para valores en SMMLV, divide los valores en pesos por 1,300,000 (SMMLV 2025).
-      `;
-
-      const responseText = await this.makeGeminiRequest(prompt, this.availableModels[this.currentModelIndex]);
-      const cleanJson = responseText.replace(/```json\n?|\n?```/g, '').trim();
-
-      let extractedData = {};
-      try {
-        extractedData = JSON.parse(cleanJson);
-        
-        // Post-procesamiento para CONTRACT_CERTIFICATION
-        if (documentType === 'CONTRACT_CERTIFICATION') {
-          extractedData = this.postProcessContractCertification(extractedData);
-        }
-        
-      } catch (parseError) {
-        console.warn('JSON parse failed, using text extraction');
-        extractedData = { 
-          rawText: text.substring(0, 500), 
-          parseError: 'Failed to parse Gemini response',
-          documentType 
-        };
-      }
-
-      const confidence = this.calculateConfidence(extractedData, documentType);
-
-      return {
-        extractedData,
-        confidence,
-        documentType
-      };
-
-    } catch (error) {
-      console.error('Gemini extraction failed:', error);
-      return this.fallbackExtraction(text, documentType);
-    }
-  }
-
-  private postProcessContractCertification(data: any): any {
-    // Asegurar que los valores SMMLV estén calculados correctamente
-    if (data.valorSinIva && !data.valorSMMLV) {
-      data.valorSMMLV = parseFloat((data.valorSinIva / SMMLV_2025).toFixed(2));
-    }
-    
-    if (data.valorConIva && !data.valorSMMLVIva) {
-      data.valorSMMLVIva = parseFloat((data.valorConIva / SMMLV_2025).toFixed(2));
-    }
-
-    // Calcular duración en meses si hay fechas
-    if (data.fechaInicio && data.fechaFin) {
-      try {
-        const start = new Date(data.fechaInicio);
-        const end = new Date(data.fechaFin);
-        const months = (end.getFullYear() - start.getFullYear()) * 12 + 
-                      (end.getMonth() - start.getMonth());
-        data.duracionMeses = Math.max(1, months);
-      } catch (e) {
-        console.warn('Could not calculate contract duration');
-      }
-    }
-
-    return data;
-  }
-
-  private calculateConfidence(data: Record<string, any>, documentType: string): number {
-    let baseConfidence = 0.7;
-    const fields = Object.keys(data).length;
-
-    // Confianza más alta para campos críticos de certificaciones
-    if (documentType === 'CONTRACT_CERTIFICATION') {
-      const criticalFields = ['cliente', 'contratista', 'objeto', 'valorSinIva'];
-      const presentCriticalFields = criticalFields.filter(field => data[field]);
-      
-      baseConfidence = 0.6 + (presentCriticalFields.length * 0.08);
-      
-      // Bonus por tener valores SMMLV calculados
-      if (data.valorSMMLV || data.valorSMMLVIva) {
-        baseConfidence += 0.1;
-      }
-    } else {
-      // Lógica para otros tipos
-      if (fields > 3) baseConfidence += 0.1;
-      if (fields > 5) baseConfidence += 0.1;
-    }
-
-    return Math.min(0.95, baseConfidence);
-  }
-
-  private keywordClassification(text: string, filename: string): string {
-    const lowerText = text.toLowerCase();
-    const lowerFilename = filename.toLowerCase();
-
-    // Priorizar CONTRACT_CERTIFICATION
-    if (lowerText.includes('certific') || lowerText.includes('experiencia') || 
-        lowerText.includes('cumplimiento') || lowerText.includes('ejecución') ||
-        lowerFilename.includes('certif') || lowerFilename.includes('experiencia')) {
-      return 'CONTRACT_CERTIFICATION';
-    } else if (lowerText.includes('factura') || lowerText.includes('invoice') || lowerFilename.includes('factura')) {
-      return 'INVOICE';
-    } else if (lowerText.includes('recibo') || lowerText.includes('receipt') || lowerFilename.includes('recibo')) {
-      return 'RECEIPT';
-    } else if (lowerText.includes('contrato') || lowerText.includes('contract')) {
-      return 'CONTRACT';
-    } else if (lowerText.includes('tutela') || lowerText.includes('demanda') || lowerText.includes('juez')) {
-      return 'LEGAL';
-    } else {
-      return 'OTHER';
-    }
-  }
-
-  private fallbackExtraction(text: string, documentType: string): Omit<ExtractionResult, 'processingEngine'> {
-    console.log('Using fallback extraction for:', documentType);
-    
-    const extractors: ExtractionFunctions = {
-      CONTRACT_CERTIFICATION: () => {
-        const baseValue = 380000000;
-        const iva = baseValue * 0.19;
-        
-        return {
-          cliente: 'MUNICIPIO DE MEDELLÍN',
-          contratista: 'ABSICOL SISTEMAS SOLARES S.A.S.',
-          fechaInicio: '2024-03-15',
-          fechaFin: '2024-09-14',
-          objeto: 'Instalación de sistemas solares fotovoltaicos en edificios públicos',
-          numeroContrato: 'CT-2024-789-SOL',
-          valorSinIva: baseValue,
-          valorConIva: baseValue + iva,
-          valorSMMLV: parseFloat((baseValue / SMMLV_2025).toFixed(2)),
-          valorSMMLVIva: parseFloat(((baseValue + iva) / SMMLV_2025).toFixed(2)),
-          duracionMeses: 6,
-          actividades: [
-            'Instalación de paneles solares',
-            'Sistema de inversores y baterías',
-            'Capacitación a personal'
-          ],
-          firmante: 'Carlos Rodríguez',
-          cargoFirmante: 'Gerente General',
-          nitContratista: '900.654.321-1'
-        };
-      },
-
-      INVOICE: () => ({
-        invoiceNumber: 'AUTO-' + Date.now(),
-        date: new Date().toISOString().split('T')[0],
-        vendor: 'Vendor Auto-Detected',
-        customer: 'Customer Auto-Detected',
-        items: [{ description: 'Servicios', quantity: 1, unitPrice: 0, total: 0 }],
-        subtotal: 0,
-        taxAmount: 0,
-        total: 0,
-        currency: 'COP'
-      }),
-
-      OTHER: () => ({
-        keyPoints: ['Documento procesado', 'Información extraída automáticamente'],
-        dates: [new Date().toISOString().split('T')[0]],
-        amounts: [0],
-        parties: ['Parte interesada'],
-        summary: 'Documento procesado mediante sistema automático'
-      })
-    };
-
-    const extractor = (extractors as unknown as Record<string, () => any>)[documentType] || extractors.OTHER;
-    
-    return {
-      extractedData: extractor(),
-      confidence: documentType === 'CONTRACT_CERTIFICATION' ? 0.7 : 0.6,
-      documentType
-    };
-  }
-
-  private fallbackProcessing(text: string, filename: string): ExtractionResult {
-    const documentType = this.keywordClassification(text, filename);
-    const extraction = this.fallbackExtraction(text, documentType);
-    
-    return {
-      ...extraction,
-      processingEngine: 'fallback'
-    };
-  }
-}
-
-export const geminiProcessor = new GeminiProcessor();
-
-
-================================================================================
-FILE: apps/web/src/features/documents/components/DocumentsTable.tsx
-================================================================================
-
-import { Link } from "react-router-dom";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { FileText, Loader2 } from "lucide-react";
-import { ProcessedDocument } from "@/types";
-
-interface DocumentsTableProps {
-  documents?: ProcessedDocument[];
-  isLoading?: boolean;
-}
-
-const TYPE_COLORS: Record<string, string> = {
-  "contract_certification": "bg-blue-100 text-blue-800 border-blue-200",
-  "invoice": "bg-purple-100 text-purple-800 border-purple-200",
-  "receipt": "bg-indigo-100 text-indigo-800 border-indigo-200",
-  "legal": "bg-orange-100 text-orange-800 border-orange-200",
-  "default": "bg-gray-100 text-gray-800 border-gray-200"
-};
-
-const STATUS_COLORS: Record<string, string> = {
-  "completed": "bg-green-100 text-green-800 border-green-200",
-  "processing": "bg-yellow-100 text-yellow-800 border-yellow-200",
-  "failed": "bg-red-100 text-red-800 border-red-200",
-  "default": "bg-gray-100 text-gray-800 border-gray-200"
-};
-
-export function DocumentsTable({ documents, isLoading = false }: DocumentsTableProps) {
-  // ✅ Manejo seguro de datos
-  const docs = Array.isArray(documents) ? documents : [];
-  
-  // ✅ Mostrar loader si está cargando
-  if (isLoading) {
-    return (
-      <div className="w-full rounded-lg border bg-white p-8">
-        <div className="flex flex-col items-center justify-center gap-4">
-          <Loader2 className="h-8 w-8 animate-spin text-primary" />
-          <p className="text-sm text-muted-foreground">Loading documents...</p>
-        </div>
-      </div>
-    );
-  }
-
-  // ✅ Mostrar estado vacío
-  if (docs.length === 0) {
-    return (
-      <div className="w-full rounded-lg border bg-white p-12">
-        <div className="flex flex-col items-center justify-center gap-4 text-center">
-          <FileText className="h-12 w-12 text-muted-foreground" />
-          <div className="space-y-1">
-            <p className="font-medium">No documents found</p>
-            <p className="text-sm text-muted-foreground">
-              Upload your first document to get started
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div className="w-full overflow-hidden rounded-lg border bg-white">
-      <Table>
-        <TableHeader>
-          <TableRow className="bg-muted/50">
-            <TableHead className="font-semibold">Document</TableHead>
-            <TableHead className="font-semibold">Type</TableHead>
-            <TableHead className="font-semibold">Status</TableHead>
-            <TableHead className="font-semibold">Confidence</TableHead>
-            <TableHead className="font-semibold">AI Engine</TableHead>
-            <TableHead className="font-semibold">Uploaded</TableHead>
-            <TableHead className="text-right font-semibold">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {docs.map((doc) => {
-            const typeColor = TYPE_COLORS[doc.type] || TYPE_COLORS.default;
-            const statusColor = STATUS_COLORS[doc.status] || STATUS_COLORS.default;
-            
-            return (
-              <TableRow key={doc.id} className="group hover:bg-muted/30">
-                <TableCell>
-                  <div className="flex items-center gap-3">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-md bg-primary/10">
-                      <FileText className="h-4 w-4 text-primary" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="truncate font-medium" title={doc.filename}>
-                        {doc.filename}
-                      </p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {doc.fileType} • {(doc.fileSize || 0) > 0 
-                          ? `${(doc.fileSize! / 1024 / 1024).toFixed(2)} MB` 
-                          : 'Unknown size'
-                        }
-                      </p>
-                    </div>
-                  </div>
-                </TableCell>
-                
-                <TableCell>
-                  <Badge 
-                    className={`${typeColor} capitalize font-medium`}
-                    variant="outline"
-                  >
-                    {doc.type.replace(/_/g, ' ')}
-                  </Badge>
-                </TableCell>
-                
-                <TableCell>
-                  <Badge 
-                    className={`${statusColor} font-medium`}
-                    variant="outline"
-                  >
-                    {doc.status.charAt(0).toUpperCase() + doc.status.slice(1)}
-                  </Badge>
-                </TableCell>
-                
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    {doc.confidence !== undefined && doc.confidence !== null ? (
-                      <>
-                        <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-                          <div 
-                            className="h-full bg-primary"
-                            style={{ width: `${doc.confidence * 100}%` }}
-                          />
-                        </div>
-                        <span className="text-sm font-medium tabular-nums">
-                          {(doc.confidence * 100).toFixed(1)}%
-                        </span>
-                      </>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">N/A</span>
-                    )}
-                  </div>
-                </TableCell>
-                
-                <TableCell>
-                  <span className="text-sm font-medium capitalize">
-                    {doc.processingEngine || 'Unknown'}
-                  </span>
-                </TableCell>
-                
-                <TableCell>
-                  <span className="text-sm text-muted-foreground">
-                    {doc.uploadedAt 
-                      ? new Date(doc.uploadedAt).toLocaleDateString()
-                      : 'Unknown'
-                    }
-                  </span>
-                </TableCell>
-                
-                <TableCell className="text-right">
-                  <Button 
-                    variant="ghost" 
-                    size="sm" 
-                    className="h-8 px-3 opacity-0 group-hover:opacity-100 transition-opacity"
-                    asChild
-                  >
-                    <Link to={`/documents/${doc.id}`}>
-                      View Details
-                    </Link>
-                  </Button>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
-    </div>
-  );
-}
-
-
-================================================================================
-FILE: apps/web/src/pages/DocumentDetail.tsx
-================================================================================
-
-//apps\web\src\pages\DocumentDetail.tsx
-import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
-import { DashboardLayout } from "@/components/layout/DashboardLayout";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ArrowLeft, Download, FileText, Calendar, Clock, User, Building, DollarSign, CheckCircle, AlertCircle } from "lucide-react";
-import { Document } from "@/types";
-import { apiClient } from "@/lib/api";
-import { useAuth } from "@/features/auth/hooks/useAuth";
-import { toast } from "sonner";
-
-interface DisplayField {
-  name: string;
-  value: any;
-  description: string;
-  type: string;
-  required: boolean;
-  isPreferred: boolean;
-}
-
-interface UserField {
-  name: string;
-  description?: string;
-  type: string;
-  required: boolean;
-}
-
-export default function DocumentDetail() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { user } = useAuth();
-  const [currentDocument, setCurrentDocument] = useState<Document | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-
-  useEffect(() => {
-    const fetchDocument = async () => {
-      if (!id) return;
-
-      try {
-        const data = await apiClient.getDocument(id);
-        setCurrentDocument(data.document);
-      } catch (error) {
-        console.error("Failed to fetch document:", error);
-        toast.error("Failed to load document");
-      } finally {
-        setIsLoading(false);
-      }
-    };
-
-    fetchDocument();
-  }, [id]);
-
-  const formatFieldValue = (value: any): string => {
-    if (value === null || value === undefined) return "N/A";
-    if (Array.isArray(value)) return value.join(", ");
-    if (typeof value === "object") return JSON.stringify(value, null, 2);
-    if (typeof value === "number" && value > 1000) {
-      return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP' }).format(value);
-    }
-    if (typeof value === 'boolean') return value ? 'Sí' : 'No';
-    return String(value);
-  };
-
-  const getFieldsToDisplay = (): DisplayField[] => {
-    if (!currentDocument?.extractedData) return [];
-    
-    const extractedData = currentDocument.extractedData;
-    const userFields: UserField[] = user?.preferences?.customFields || [];
-    
-    const fields: DisplayField[] = [];
-
-    if (userFields.length > 0) {
-      for (const field of userFields) {
-        if (extractedData[field.name] !== undefined) {
-          fields.push({
-            name: field.name,
-            value: extractedData[field.name],
-            description: field.description || '',
-            type: field.type,
-            required: field.required,
-            isPreferred: true
-          });
-        }
-      }
-      
-      Object.entries(extractedData).forEach(([key, value]) => {
-        if (!fields.find(f => f.name === key) && !key.startsWith('_')) {
-          fields.push({
-            name: key,
-            value: value,
-            description: '',
-            type: 'auto',
-            required: false,
-            isPreferred: false
-          });
-        }
-      });
-      
-      return fields;
-    }
-    
-    return Object.entries(extractedData)
-      .filter(([key]) => !key.startsWith('_'))
-      .map(([key, value]) => ({
-        name: key,
-        value: value,
-        description: '',
-        type: 'auto',
-        required: false,
-        isPreferred: false
-      }));
-  };
-
-  if (isLoading) {
-    return (
-      <DashboardLayout>
-        <div className="space-y-6 animate-in">
-          <div className="flex items-center gap-4">
-            <Button variant="outline" size="icon" onClick={() => navigate("/documents")}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div className="space-y-1">
-              <div className="h-8 w-64 bg-muted rounded animate-pulse" />
-              <div className="h-4 w-32 bg-muted rounded animate-pulse" />
-            </div>
-          </div>
-          <div className="grid gap-6 lg:grid-cols-3">
-            <div className="lg:col-span-2 space-y-4">
-              <div className="h-64 bg-muted rounded animate-pulse" />
-            </div>
-            <div className="space-y-4">
-              <div className="h-32 bg-muted rounded animate-pulse" />
-              <div className="h-32 bg-muted rounded animate-pulse" />
-            </div>
-          </div>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  if (!currentDocument) {
-    return (
-      <DashboardLayout>
-        <div className="space-y-6 animate-in">
-          <div className="flex items-center gap-4">
-            <Button variant="outline" size="icon" onClick={() => navigate("/documents")}>
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-            <div>
-              <h1 className="text-3xl font-bold">Document not found</h1>
-              <p className="text-muted-foreground">The document you're looking for doesn't exist.</p>
-            </div>
-          </div>
-        </div>
-      </DashboardLayout>
-    );
-  }
-
-  const fieldsToDisplay = getFieldsToDisplay();
-  const hasExtractedData = currentDocument.extractedData && Object.keys(currentDocument.extractedData).length > 0;
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "completed":
-        return "bg-green-100 text-green-800 border-green-200";
-      case "processing":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case "failed":
-        return "bg-red-100 text-red-800 border-red-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
-    }
-  };
-
-  const getTypeColor = (type: string) => {
-    switch (type) {
-      case "contract_certification":
-        return "bg-blue-100 text-blue-800 border-blue-200";
-      case "invoice":
-        return "bg-purple-100 text-purple-800 border-purple-200";
-      case "receipt":
-        return "bg-indigo-100 text-indigo-800 border-indigo-200";
-      case "legal":
-        return "bg-orange-100 text-orange-800 border-orange-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
-    }
-  };
-
-  const getFieldIcon = (fieldName: string) => {
-    const lowerName = fieldName.toLowerCase();
-    if (lowerName.includes('date') || lowerName.includes('fecha')) return Calendar;
-    if (lowerName.includes('name') || lowerName.includes('nombre')) return User;
-    if (lowerName.includes('company') || lowerName.includes('empresa')) return Building;
-    if (lowerName.includes('amount') || lowerName.includes('valor') || lowerName.includes('price')) return DollarSign;
-    return FileText;
-  };
-
-  const handleExportData = () => {
-    if (currentDocument?.extractedData) {
-      const dataStr = JSON.stringify(currentDocument.extractedData, null, 2);
-      const blob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(blob);
-      const anchorElement = document.createElement('a');
-      anchorElement.href = url;
-      anchorElement.download = `${currentDocument.filename}-extracted-data.json`;
-      document.body.appendChild(anchorElement);
-      anchorElement.click();
-      document.body.removeChild(anchorElement);
-      URL.revokeObjectURL(url);
-    }
-  };
-
-  return (
-    <DashboardLayout>
-      <div className="space-y-6 animate-in">
-        {/* Header */}
-        <div className="flex items-center gap-4">
-          <Button variant="outline" size="icon" onClick={() => navigate("/documents")}>
-            <ArrowLeft className="h-4 w-4" />
-          </Button>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-3xl font-bold truncate">{currentDocument.filename}</h1>
-            <p className="text-muted-foreground">
-              Uploaded on {new Date(currentDocument.uploadedAt).toLocaleDateString()}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button variant="outline" size="sm" asChild>
-              <a href={currentDocument.fileUrl} target="_blank" rel="noopener noreferrer">
-                <Download className="h-4 w-4 mr-2" />
-                Download
-              </a>
-            </Button>
-          </div>
-        </div>
-
-        <div className="grid gap-6 lg:grid-cols-3">
-          {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Processing Status */}
-            <Card>
-              <CardHeader className="pb-3">
-                <CardTitle className="flex items-center gap-2">
-                  {currentDocument.status === "completed" ? (
-                    <CheckCircle className="h-5 w-5 text-green-600" />
-                  ) : currentDocument.status === "processing" ? (
-                    <Clock className="h-5 w-5 text-yellow-600" />
-                  ) : (
-                    <AlertCircle className="h-5 w-5 text-red-600" />
-                  )}
-                  Processing Results
-                </CardTitle>
-                <CardDescription>
-                  {currentDocument.status === "completed" 
-                    ? "Document processed successfully" 
-                    : currentDocument.status === "processing"
-                    ? "Document is being processed"
-                    : "Document processing failed"
-                  }
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="font-medium">Status:</span>
-                    <Badge className={`ml-2 ${getStatusColor(currentDocument.status)}`}>
-                      {currentDocument.status}
-                    </Badge>
-                  </div>
-                  <div>
-                    <span className="font-medium">Type:</span>
-                    <Badge className={`ml-2 ${getTypeColor(currentDocument.type)}`}>
-                      {currentDocument.type.replace('_', ' ')}
-                    </Badge>
-                  </div>
-                  <div>
-                    <span className="font-medium">Confidence:</span>
-                    <span className="ml-2 font-medium">
-                      {currentDocument.confidence ? `${(currentDocument.confidence * 100).toFixed(1)}%` : 'N/A'}
-                    </span>
-                  </div>
-                  <div>
-                    <span className="font-medium">AI Engine:</span>
-                    <span className="ml-2 font-medium capitalize">
-                      {currentDocument.processingEngine || 'N/A'}
-                    </span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Extracted Data */}
-            {hasExtractedData ? (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Extracted Information</CardTitle>
-                  <CardDescription>
-                    {user?.preferences?.customFields && user.preferences.customFields.length > 0 
-                      ? "Data filtered based on your preferences" 
-                      : "All extracted data from the document"
-                    }
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    {/* Preferred Fields */}
-                    {fieldsToDisplay.filter(f => f.isPreferred).length > 0 && (
-                      <div>
-                        <h4 className="font-semibold mb-3 text-sm text-muted-foreground flex items-center gap-2">
-                          <CheckCircle className="h-4 w-4 text-green-600" />
-                          Your Preferred Fields
-                        </h4>
-                        <div className="grid gap-3">
-                          {fieldsToDisplay.filter(f => f.isPreferred).map((field, index) => {
-                            const FieldIcon = getFieldIcon(field.name);
-                            return (
-                              <div key={index} className="flex items-start gap-3 p-3 rounded-lg border border-green-200 bg-green-50">
-                                <FieldIcon className="h-4 w-4 text-green-600 mt-1 flex-shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2 mb-1">
-                                    <span className="font-medium capitalize">
-                                      {field.name.replace(/([A-Z])/g, ' $1').toLowerCase()}
-                                    </span>
-                                    {field.required && (
-                                      <Badge variant="secondary" className="text-xs">
-                                        Required
-                                      </Badge>
-                                    )}
-                                    <Badge variant="outline" className="text-xs capitalize">
-                                      {field.type}
-                                    </Badge>
-                                  </div>
-                                  <p className="text-sm text-muted-foreground">
-                                    {field.description}
-                                  </p>
-                                  <p className="text-sm font-medium mt-1">
-                                    {formatFieldValue(field.value)}
-                                  </p>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Additional Fields */}
-                    {fieldsToDisplay.filter(f => !f.isPreferred).length > 0 && (
-                      <div>
-                        <h4 className="font-semibold mb-3 text-sm text-muted-foreground">
-                          Additional Extracted Fields
-                        </h4>
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>Field</TableHead>
-                              <TableHead>Value</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {fieldsToDisplay.filter(f => !f.isPreferred).map((field, index) => (
-                              <TableRow key={index}>
-                                <TableCell className="font-medium capitalize">
-                                  {field.name.replace(/([A-Z])/g, ' $1').toLowerCase()}
-                                </TableCell>
-                                <TableCell>
-                                  {formatFieldValue(field.value)}
-                                </TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </div>
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-            ) : (
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="text-center py-8">
-                    <FileText className="mx-auto h-12 w-12 text-muted-foreground" />
-                    <h3 className="mt-4 text-lg font-semibold">No Data Extracted</h3>
-                    <p className="text-muted-foreground mt-2">
-                      {currentDocument.status === "processing" 
-                        ? "Document is still being processed. Please check back later." 
-                        : "No data could be extracted from this document."
-                      }
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-
-            {/* Raw Data */}
-            {hasExtractedData && (
-              <Card>
-                <CardHeader>
-                  <CardTitle>Raw Data</CardTitle>
-                  <CardDescription>
-                    Complete JSON data extracted from the document
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <pre className="bg-muted p-4 rounded-lg overflow-auto text-sm max-h-96">
-                    {JSON.stringify(currentDocument.extractedData, null, 2)}
-                  </pre>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          {/* Sidebar */}
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Document Information</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-sm font-medium">File Name</span>
-                    <span className="text-sm text-right truncate max-w-[200px]" title={currentDocument.filename}>
-                      {currentDocument.filename}
-                    </span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium">File Size</span>
-                    <span className="text-sm">
-                      {currentDocument.fileSize ? `${(currentDocument.fileSize / 1024 / 1024).toFixed(2)} MB` : 'N/A'}
-                    </span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium">File Type</span>
-                    <span className="text-sm capitalize">{currentDocument.fileType || 'N/A'}</span>
-                  </div>
-                  <Separator />
-                  <div className="flex justify-between">
-                    <span className="text-sm font-medium">Uploaded</span>
-                    <span className="text-sm">
-                      {new Date(currentDocument.uploadedAt).toLocaleDateString()}
-                    </span>
-                  </div>
-                  {currentDocument.processedAt && (
-                    <>
-                      <Separator />
-                      <div className="flex justify-between">
-                        <span className="text-sm font-medium">Processed</span>
-                        <span className="text-sm">
-                          {new Date(currentDocument.processedAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Quick Actions */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <Button className="w-full" variant="outline" asChild>
-                  <a href={currentDocument.fileUrl} target="_blank" rel="noopener noreferrer">
-                    <Download className="mr-2 h-4 w-4" />
-                    Download Original
-                  </a>
-                </Button>
-                <Button 
-                  className="w-full" 
-                  variant="outline" 
-                  onClick={handleExportData}
-                  disabled={!currentDocument.extractedData}
-                >
-                  <FileText className="mr-2 h-4 w-4" />
-                  Export Data
-                </Button>
-                <Button className="w-full" variant="outline" onClick={() => navigate("/documents/upload")}>
-                  <FileText className="mr-2 h-4 w-4" />
-                  Upload Another
-                </Button>
-              </CardContent>
-            </Card>
-
-            {/* Processing Info */}
-            <Card>
-              <CardHeader>
-                <CardTitle>Processing Details</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">AI Engine</span>
-                  <span className="font-medium capitalize">{currentDocument.processingEngine || 'Unknown'}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Confidence Score</span>
-                  <span className="font-medium">
-                    {currentDocument.confidence ? `${(currentDocument.confidence * 100).toFixed(1)}%` : 'N/A'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-muted-foreground">Document Type</span>
-                  <span className="font-medium capitalize">
-                    {currentDocument.type.replace('_', ' ')}
-                  </span>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </div>
-    </DashboardLayout>
-  );
-}
-
-
-================================================================================
+==============================
+SECTION: FRONTEND
+==============================
+
+---
 FILE: apps/web/src/lib/api.ts
-================================================================================
-
+---
 //apps\web\src\lib\api.ts
 const DEFAULT_API = (import.meta.env.VITE_API_URL as string) || '/api';
 
@@ -2167,7 +1297,11 @@ export const apiClient = {
     });
   },
 
-  // MÉTODOS ESPECÍFICOS PARA DOCUMENTOS
+    deleteDocument(id: string) {
+    return this.delete(`/documents/${id}`);
+  },
+
+  // MTODOS ESPECFICOS PARA DOCUMENTOS
   getDocumentMetrics() {
     return this.get('/documents/metrics');
   },
@@ -2205,7 +1339,7 @@ export const apiClient = {
     });
   },
 
-  // MÉTODOS PARA PLANTILLAS
+  // MTODOS PARA PLANTILLAS
   getTemplates() {
     return this.get('/templates');
   },
@@ -2222,7 +1356,7 @@ export const apiClient = {
     return this.delete(`/templates/${id}`);
   },
 
-  // MÉTODOS PARA USUARIO
+  // MTODOS PARA USUARIO
   getUserProfile() {
     return this.get('/users/profile');
   },
@@ -2231,11 +1365,18 @@ export const apiClient = {
     return this.put('/users/preferences', data);
   },
 
+  // ONBOARDING / PREFERENCIAS
   updateOnboarding(data: any) {
-    return this.put('/users/onboarding', data);
+    // Si quieres actualizar las preferencias existentes
+    return this.put('/users/preferences', data);
   },
 
-  // MÉTODOS DE AUTENTICACIÓN
+  // Registro inicial (onboarding)  crear preferencias
+  createOnboarding(data: any) {
+    return this.post('/users/preferences/onboarding', data);
+  },
+
+  // MTODOS DE AUTENTICACIN
   login(email: string, password: string) {
     return this.post('/auth/login', { email, password });
   },
@@ -2264,13 +1405,664 @@ export const apiClient = {
 export default apiClient;
 export const api = apiClient;
 
+---
+FILE: apps/web/src/contexts/AuthContext.tsx
+---
+//apps\web\src\contexts\AuthContext.tsx
+import {
+  createContext,
+  useState,
+  useEffect,
+  ReactNode,
+  useRef,
+} from 'react';
+import apiClient, { setAuthToken } from '@/lib/api';
+import { User } from '../types';
 
-================================================================================
-FILE NOT FOUND: apps/web/src/lib/api/index.ts
-================================================================================
+export interface AuthContextType {
+  user: User | null;
+  token: string | null;
+  login: (email: string, password: string) => Promise<void>;
+  register: (name: string, email: string, password: string) => Promise<void>;
+  logout: () => void;
+  isLoading: boolean;
+}
 
+export const AuthContext = createContext<AuthContextType | undefined>(
+  undefined
+);
 
-================================================================================
-FILE NOT FOUND: apps/web/src/lib/axiosConfig.js
-================================================================================
+interface AuthProviderProps {
+  children: ReactNode;
+}
 
+export const AuthProvider = ({ children }: AuthProviderProps) => {
+  const [user, setUser] = useState<User | null>(null);
+  const [token, setTokenState] = useState<string | null>(
+    localStorage.getItem('token')
+  );
+  const [isLoading, setIsLoading] = useState(true);
+  const hasFetchedUser = useRef(false);
+
+  //  aplicar token al cargar
+  useEffect(() => {
+    setAuthToken(token || undefined);
+  }, [token]);
+
+  useEffect(() => {
+    if (token && !hasFetchedUser.current) {
+      hasFetchedUser.current = true;
+      fetchUser();
+    } else {
+      setIsLoading(false);
+    }
+  }, [token]);
+
+  const fetchUser = async () => {
+    try {
+      setIsLoading(true);
+      const response = await apiClient.get('/auth/me');
+
+      if (response?.user) {
+        setUser(response.user);
+      } else {
+        throw new Error('Unexpected response structure');
+      }
+    } catch (error) {
+      console.error('Failed to fetch user:', error);
+      localStorage.removeItem('token');
+      setTokenState(null);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const login = async (email: string, password: string) => {
+    try {
+      setIsLoading(true);
+      const response = await apiClient.post('/auth/login', { email, password });
+
+      const authToken = response?.token;
+      const userData = response?.user;
+
+      if (!authToken) throw new Error('Auth token missing');
+
+      setTokenState(authToken);
+      localStorage.setItem('token', authToken);
+      setAuthToken(authToken);
+
+      setUser(userData);
+      hasFetchedUser.current = true;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const register = async (name: string, email: string, password: string) => {
+    try {
+      setIsLoading(true);
+      const response = await apiClient.post('/auth/register', {
+        name,
+        email,
+        password,
+      });
+
+      const authToken = response?.token;
+      const userData = response?.user;
+
+      if (!authToken) throw new Error('Auth token missing');
+
+      setTokenState(authToken);
+      localStorage.setItem('token', authToken);
+      setAuthToken(authToken);
+
+      setUser(userData);
+      hasFetchedUser.current = true;
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const logout = () => {
+    setUser(null);
+    localStorage.removeItem('token');
+    setTokenState(null);
+    setAuthToken(undefined);
+    hasFetchedUser.current = false;
+  };
+
+  const value: AuthContextType = {
+    user,
+    token,
+    login,
+    register,
+    logout,
+    isLoading,
+  };
+
+  return (
+    <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+  );
+};
+
+---
+FILE: apps/web/src/pages/Register.tsx
+---
+//src\pages\Register.tsx
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { FileText } from "lucide-react";
+import { toast } from "sonner";
+import { useAuth } from "@/features/auth/hooks/useAuth";
+
+export default function Register() {
+  const navigate = useNavigate();
+  const { register } = useAuth();
+  const [name, setName] = useState("");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    if (password !== confirmPassword) {
+      toast.error("Passwords don't match");
+      return;
+    }
+
+    if (password.length < 8) {
+      toast.error("Password must be at least 8 characters");
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      await register(name, email, password);
+      toast.success("Account created successfully!");
+      navigate("/dashboard");
+    } catch (error: any) {
+      console.error('Registration error:', error);
+      // Si la API devolvi 400 por usuario existente, mostrar mensaje amigable
+      if (error?.status === 400 && typeof error.message === 'string' && error.message.includes('User already exists')) {
+        toast.error('An account with that email already exists. Try logging in.');
+        navigate('/login');
+      } else {
+        toast.error('Failed to create account. Please try again.');
+      }
+    } finally {
+
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4">
+      <div className="w-full max-w-md space-y-6 animate-in">
+        <div className="text-center space-y-2">
+          <div className="flex items-center justify-center gap-2 mb-4">
+            <div className="p-3 rounded-lg bg-primary">
+              <FileText className="h-8 w-8 text-primary-foreground" />
+            </div>
+            <h1 className="text-3xl font-bold">DocuMind AI</h1>
+          </div>
+          <p className="text-muted-foreground">
+            Start automating your document processing today
+          </p>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Create your account</CardTitle>
+            <CardDescription>
+              Get started with your free trial - no credit card required
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">Full Name</Label>
+                <Input
+                  id="name"
+                  type="text"
+                  placeholder="John Doe"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="john@example.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="password">Password</Label>
+                <Input
+                  id="password"
+                  type="password"
+                  placeholder="At least 8 characters"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  disabled={isLoading}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <Input
+                  id="confirmPassword"
+                  type="password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  disabled={isLoading}
+                />
+              </div>
+              <Button type="submit" className="w-full" disabled={isLoading}>
+                {isLoading ? "Creating account..." : "Create Account"}
+              </Button>
+            </form>
+
+            <div className="mt-4 text-center text-sm">
+              <span className="text-muted-foreground">Already have an account? </span>
+              <Button
+                variant="link"
+                className="p-0 h-auto"
+                onClick={() => navigate("/login")}
+                disabled={isLoading}
+              >
+                Sign in
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <div className="text-center text-xs text-muted-foreground">
+          <p>By creating an account, you agree to our Terms of Service and Privacy Policy</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+---
+FILE: apps/web/src/features/settings/hooks/usePreferences.ts
+---
+// apps/web/src/features/settings/hooks/usePreferences.ts
+import { useState, useCallback } from 'react';
+import { toast } from 'sonner';
+import { apiClient } from '@/lib/api';
+import { UserPreferences, CustomField } from '@/types';
+
+const BASE_PATH = '/users/preferences';
+
+export const usePreferences = () => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [preferences, setPreferences] = useState<UserPreferences | null>(null);
+  const [customFields, setCustomFields] = useState<CustomField[]>([]);
+  const [templates, setTemplates] = useState<any[]>([]);
+
+  // Obtener preferencias del usuario
+  const fetchPreferences = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const data = await apiClient.get(`${BASE_PATH}`);
+      setPreferences(data.preferences);
+      setCustomFields(data.customFields || []);
+      setTemplates(data.templates || []);
+      return data;
+    } catch (error) {
+      console.error('Failed to fetch preferences:', error);
+      toast.error('Failed to load preferences');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Registrar/guardar preferencias (onboarding)
+  const setUserPreferences = useCallback(async (preferencesData: any) => {
+    try {
+      setIsLoading(true);
+      const data = await apiClient.post(`${BASE_PATH}/onboarding`, preferencesData);
+      setPreferences(data.preferences);
+      toast.success('Preferences saved successfully');
+      return data;
+    } catch (error) {
+      console.error('Failed to set preferences:', error);
+      toast.error('Failed to save preferences');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Actualizar preferencias
+  const updateUserPreferences = useCallback(async (preferencesData: any) => {
+    try {
+      setIsLoading(true);
+      const data = await apiClient.put(`${BASE_PATH}`, preferencesData);
+      setPreferences(data.preferences);
+      toast.success('Preferences updated successfully');
+      return data;
+    } catch (error) {
+      console.error('Failed to update preferences:', error);
+      toast.error('Failed to update preferences');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Agregar un campo personalizado
+  const addCustomField = useCallback(async (field: Omit<CustomField, 'id'>) => {
+    try {
+      setIsLoading(true);
+      const data = await apiClient.post(`${BASE_PATH}/custom-fields`, field);
+      setCustomFields(prev => [...prev, data.customField]);
+      toast.success('Custom field added successfully');
+      return data;
+    } catch (error) {
+      console.error('Failed to add custom field:', error);
+      toast.error('Failed to add custom field');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Eliminar un campo personalizado
+  const deleteCustomField = useCallback(async (id: string) => {
+    try {
+      setIsLoading(true);
+      await apiClient.delete(`${BASE_PATH}/custom-fields/${id}`);
+      setCustomFields(prev => prev.filter(field => field.id !== id));
+      toast.success('Custom field deleted successfully');
+    } catch (error) {
+      console.error('Failed to delete custom field:', error);
+      toast.error('Failed to delete custom field');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Obtener plantillas predefinidas
+  const getPredefinedTemplates = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const data = await apiClient.get(`${BASE_PATH}/templates/predefined`);
+      return data.predefinedTemplates;
+    } catch (error) {
+      console.error('Failed to fetch templates:', error);
+      toast.error('Failed to load templates');
+      throw error;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  return {
+    isLoading,
+    preferences,
+    customFields,
+    templates,
+    fetchPreferences,
+    setUserPreferences,
+    updateUserPreferences,
+    addCustomField,
+    deleteCustomField,
+    getPredefinedTemplates,
+  };
+};
+
+---
+FILE: apps/web/src/pages/Onboarding.tsx
+---
+// src/pages/Onboarding.tsx
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Badge } from '@/components/ui/badge';
+import { FileText, Receipt, Scale, Settings, ArrowRight, Check } from 'lucide-react';
+import { toast } from 'sonner';
+import { usePreferences } from '@/features/settings/hooks/usePreferences';
+import { useAuth } from '@/features/auth/hooks/useAuth';
+import { CustomField } from '@/types';
+
+const useCases = [
+  {
+    id: 'CONTRACT_CERTIFICATION',
+    title: 'Contract Certifications',
+    description: 'Extract data from contract certifications and experience letters',
+    icon: FileText,
+    fields: [
+      { name: 'client', type: 'text' as const, required: true, description: 'Client name' },
+      { name: 'contractor', type: 'text' as const, required: true, description: 'Contractor name' },
+      { name: 'startDate', type: 'date' as const, required: true, description: 'Start date' },
+      { name: 'endDate', type: 'date' as const, required: true, description: 'End date' },
+      { name: 'contractObject', type: 'text' as const, required: true, description: 'Contract object' },
+      { name: 'valueWithoutVAT', type: 'currency' as const, required: true, description: 'Value without VAT' },
+      { name: 'valueWithVAT', type: 'currency' as const, required: true, description: 'Value with VAT' },
+    ],
+  },
+  {
+    id: 'INVOICE_PROCESSING',
+    title: 'Invoice Processing',
+    description: 'Extract data from invoices and receipts',
+    icon: Receipt,
+    fields: [
+      { name: 'invoiceNumber', type: 'text' as const, required: true, description: 'Invoice number' },
+      { name: 'date', type: 'date' as const, required: true, description: 'Invoice date' },
+      { name: 'vendor', type: 'text' as const, required: true, description: 'Vendor name' },
+      { name: 'customer', type: 'text' as const, required: true, description: 'Customer name' },
+      { name: 'total', type: 'currency' as const, required: true, description: 'Total amount' },
+    ],
+  },
+  {
+    id: 'LEGAL_DOCUMENTS',
+    title: 'Legal Documents',
+    description: 'Extract data from legal documents and court filings',
+    icon: Scale,
+    fields: [
+      { name: 'caseNumber', type: 'text' as const, required: true, description: 'Case number' },
+      { name: 'court', type: 'text' as const, required: true, description: 'Court name' },
+      { name: 'plaintiff', type: 'text' as const, required: true, description: 'Plaintiff name' },
+      { name: 'defendant', type: 'text' as const, required: true, description: 'Defendant name' },
+      { name: 'filingDate', type: 'date' as const, required: true, description: 'Filing date' },
+    ],
+  },
+  {
+    id: 'CUSTOM',
+    title: 'Custom Setup',
+    description: 'Define your own fields and extraction rules',
+    icon: Settings,
+    fields: [],
+  },
+];
+
+export default function Onboarding() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { setUserPreferences, isLoading } = usePreferences();
+  const [selectedUseCase, setSelectedUseCase] = useState<string>('CONTRACT_CERTIFICATION');
+
+  useEffect(() => {
+    // If user already has preferences, redirect to dashboard
+    if (user?.preferences) {
+      navigate('/dashboard');
+    }
+  }, [user, navigate]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    
+    const selectedUseCaseData = useCases.find(uc => uc.id === selectedUseCase);
+    if (!selectedUseCaseData) return;
+
+    try {
+      await setUserPreferences({
+        useCase: selectedUseCase,
+        customFields: selectedUseCaseData.fields as CustomField[],
+      });
+      toast.success('Preferences saved successfully!');
+      navigate('/dashboard');
+    } catch (error) {
+      console.error('Failed to save preferences:', error);
+    }
+  };
+
+  const selectedUseCaseData = useCases.find(uc => uc.id === selectedUseCase);
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-secondary/5 p-4">
+      <div className="w-full max-w-4xl space-y-6 animate-in">
+        <div className="text-center space-y-2">
+          <h1 className="text-3xl font-bold">Welcome to DocuMind AI</h1>
+          <p className="text-muted-foreground">
+            Let's customize your experience. How will you use our document processing?
+          </p>
+        </div>
+
+        <div className="flex justify-center mb-8">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center text-primary">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-primary text-primary-foreground">
+                <Check className="h-4 w-4" />
+              </div>
+              <span className="ml-2 text-sm font-medium">Use Case</span>
+            </div>
+            <div className="w-12 h-0.5 bg-muted" />
+            <div className="flex items-center text-muted-foreground">
+              <div className="w-8 h-8 rounded-full flex items-center justify-center bg-muted">
+                2
+              </div>
+              <span className="ml-2 text-sm font-medium">Fields</span>
+            </div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit}>
+          <Card>
+            <CardHeader>
+              <CardTitle>Select Your Use Case</CardTitle>
+              <CardDescription>
+                Choose the primary use case for document processing. You can change this later in settings.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <RadioGroup value={selectedUseCase} onValueChange={setSelectedUseCase} className="space-y-4">
+                {useCases.map((useCase) => (
+                  <div key={useCase.id} className="flex items-start space-x-3 p-4 rounded-lg border hover:border-primary/50 transition-colors">
+                    <RadioGroupItem value={useCase.id} id={useCase.id} />
+                    <Label htmlFor={useCase.id} className="flex-1 cursor-pointer">
+                      <div className="flex items-start gap-4">
+                        <div className="p-3 rounded-lg bg-primary/10 mt-1">
+                          <useCase.icon className="h-6 w-6 text-primary" />
+                        </div>
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-medium">{useCase.title}</p>
+                            {useCase.id === 'CONTRACT_CERTIFICATION' && (
+                              <Badge variant="secondary" className="text-xs">
+                                Recommended
+                              </Badge>
+                            )}
+                          </div>
+                          <p className="text-sm text-muted-foreground mb-3">
+                            {useCase.description}
+                          </p>
+                          {useCase.fields.length > 0 && (
+                            <div className="space-y-2">
+                              <p className="text-xs font-medium text-muted-foreground">
+                                Extracted fields:
+                              </p>
+                              <div className="flex flex-wrap gap-1">
+                                {useCase.fields.slice(0, 4).map((field, index) => (
+                                  <Badge key={index} variant="outline" className="text-xs">
+                                    {field.name}
+                                  </Badge>
+                                ))}
+                                {useCase.fields.length > 4 && (
+                                  <Badge variant="outline" className="text-xs">
+                                    +{useCase.fields.length - 4} more
+                                  </Badge>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+
+              {selectedUseCaseData && selectedUseCaseData.fields.length > 0 && (
+                <div className="p-4 rounded-lg bg-muted/50">
+                  <h4 className="font-medium mb-2">Fields that will be extracted:</h4>
+                  <div className="grid gap-2 text-sm">
+                    {selectedUseCaseData.fields.map((field, index) => (
+                      <div key={index} className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-primary" />
+                        <span className="font-medium">{field.name}</span>
+                        <span className="text-muted-foreground">- {field.description}</span>
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {field.type}
+                        </Badge>
+                        {field.required && (
+                          <Badge variant="secondary" className="text-xs">
+                            Required
+                          </Badge>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-between pt-4">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => navigate('/dashboard')}
+                  disabled={isLoading}
+                >
+                  Skip for now
+                </Button>
+                <Button type="submit" disabled={isLoading}>
+                  {isLoading ? 'Saving...' : 'Save Preferences & Continue'}
+                  <ArrowRight className="ml-2 h-4 w-4" />
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </form>
+
+        <div className="text-center text-sm text-muted-foreground">
+          <p>You can always change these settings later in your profile preferences.</p>
+        </div>
+      </div>
+    </div>
+  );
+}

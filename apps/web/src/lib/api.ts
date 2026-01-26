@@ -163,9 +163,17 @@ export const apiClient = {
     return this.put('/users/preferences', data);
   },
 
+  // ONBOARDING / PREFERENCIAS
   updateOnboarding(data: any) {
-    return this.put('/users/onboarding', data);
+    // Si quieres actualizar las preferencias existentes
+    return this.put('/users/preferences', data);
   },
+
+  // Registro inicial (onboarding) — crear preferencias
+  createOnboarding(data: any) {
+    return this.post('/users/preferences/onboarding', data);
+  },
+
 
   // MÉTODOS DE AUTENTICACIÓN
   login(email: string, password: string) {

@@ -37,10 +37,17 @@ export default function Register() {
       await register(name, email, password);
       toast.success("Account created successfully!");
       navigate("/dashboard");
-    } catch (error) {
+    } catch (error: any) {
       console.error('Registration error:', error);
-      toast.error("Failed to create account. Please try again.");
+      // Si la API devolvió 400 por usuario existente, mostrar mensaje amigable
+      if (error?.status === 400 && typeof error.message === 'string' && error.message.includes('User already exists')) {
+        toast.error('An account with that email already exists. Try logging in.');
+        navigate('/login');
+      } else {
+        toast.error('Failed to create account. Please try again.');
+      }
     } finally {
+
       setIsLoading(false);
     }
   };

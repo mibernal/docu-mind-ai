@@ -1,3 +1,4 @@
+//tsconfig.json
 {
   "files": [],
   "references": [
@@ -5,5 +6,13 @@
     { "path": "./apps/api/tsconfig.json" },
     { "path": "./packages/shared/tsconfig.json" },
     { "path": "./packages/ai-processor/tsconfig.json" }
-  ]
+  ],
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true
+  }
 }

@@ -34,7 +34,9 @@ app.use('/api/auth/', authLimiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/documents', documentRoutes);
-app.use('/api/preferences', preferenceRoutes);
+// Preferencias de usuario (montadas bajo /api/users/preferences para coincidir con el frontend)
+app.use('/api/users/preferences', preferenceRoutes);
+
 
 // Health check
 app.get('/api/health', (req, res) => {

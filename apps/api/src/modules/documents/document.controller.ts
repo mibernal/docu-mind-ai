@@ -1,11 +1,11 @@
-//apps\api\src\modules\documents\document.controller.ts
+// apps/api/src/modules/documents/document.controller.ts
 import { Response } from 'express';
-import { prisma } from "../../shared/db.js";
-import { AuthRequest } from '../../core/middleware/auth.middleware.js';
-import { jsonToString, stringToJson } from "../../shared/json.js";
+import { prisma } from '../../shared/db';
+import { AuthRequest } from '../../core/middleware/auth.middleware';
+import { jsonToString, stringToJson } from '../../shared/json';
 import fs from 'fs';
 import path from 'path';
-import { personalizedProcessor } from "./personalizedProcessor.js";
+import { personalizedProcessor } from './personalizedProcessor';
 import { DocumentType, DocumentStatus } from '@prisma/client';
 
 // Interface para estadísticas de documentos por tipo
@@ -26,7 +26,7 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const { originalname, mimetype, size, filename } = req.file;
+    const { originalname, mimetype, size, filename } = req.file as any;
     const filePath = path.join(process.env.UPLOAD_PATH || './uploads', filename);
 
     // Verificar que el archivo existe en disco
@@ -51,14 +51,32 @@ export const uploadDocument = async (req: AuthRequest, res: Response) => {
     // Leer archivo desde disco para procesamiento
     const fileBuffer = fs.readFileSync(filePath);
 
-    // Procesamiento asíncrono en segundo plano
-    processWithUserPreferences(document.id, fileBuffer, mimetype, originalname, req.user.userId);
+    // Procesamiento asíncrono en segundo plano (no bloqueante).
+    // Protegemos la llamada en background con .catch para loguear errores.
+    if (!personalizedProcessor || typeof personalizedProcessor.processWithUserPreferences !== 'function') {
+      console.warn('personalizedProcessor.processWithUserPreferences not available — skipping personalized processing');
+    } else {
+      // lanzar en background y atrapar errores para evitar uncaught rejections
+      personalizedProcessor
+        .processWithUserPreferences(fileBuffer, mimetype, originalname, req.user.userId)
+        .then((result: any) => {
+          // Opcional: podrías actualizar DB aquí si necesitas feedback inmediato
+          console.log(`Background processing finished for document ${document.id}`, {
+            docType: result?.documentType,
+            engine: result?.processingEngine,
+            confidence: result?.confidence,
+          });
+        })
+        .catch((bgErr: any) => {
+          console.error(`Background processing error for document ${document.id}:`, bgErr?.message ?? bgErr);
+        });
+    }
 
     res.status(201).json({
       documentId: document.id,
       filename: originalname,
       message: 'Document uploaded successfully. Personalized AI processing started.',
-      status: 'PROCESSING'
+      status: 'PROCESSING',
     });
   } catch (error: any) {
     console.error('Upload document error:', error);

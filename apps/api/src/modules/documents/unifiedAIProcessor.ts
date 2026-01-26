@@ -1,4 +1,3 @@
-//server\src\services\unifiedAIProcessor.ts
 import { geminiProcessor } from "./geminiProcessor";
 import { fallbackProcessor } from "./fallbackProcessor";
 
@@ -10,22 +9,50 @@ interface ExtractionResult {
 }
 
 export class UnifiedAIProcessor {
-  async processDocument(fileBuffer: Buffer, mimeType: string, filename: string): Promise<ExtractionResult> {
-    const preferredEngine = process.env.PREFERRED_AI_ENGINE || 'fallback';
 
-    console.log(`Using AI engine: ${preferredEngine}`);
+  async processDocument(
+    fileBuffer: Buffer,
+    mimeType: string,
+    filename: string
+  ): Promise<ExtractionResult> {
 
-    try {
-      if (preferredEngine === 'gemini') {
-        return await geminiProcessor.processDocument(fileBuffer, mimeType, filename);
-      } else {
-        // Use enhanced fallback
-        return await fallbackProcessor.processDocument(fileBuffer, mimeType, filename);
+    const preferredEngine = process.env.PREFERRED_AI_ENGINE || 'gemini';
+
+    console.log('[UnifiedAIProcessor] Preferred engine:', preferredEngine);
+
+    // 1️⃣ Intentar Gemini si está configurado
+    if (preferredEngine === 'gemini') {
+      try {
+        const result = await geminiProcessor.processDocument(
+          fileBuffer,
+          mimeType,
+          filename
+        );
+
+        // ⚠️ Validar resultado REAL, no solo errores
+        if (
+          result &&
+          result.extractedData &&
+          Object.keys(result.extractedData).length > 0
+        ) {
+          return result;
+        }
+
+        console.warn('[UnifiedAIProcessor] Gemini returned empty extraction, falling back', {
+          filename
+        });
+
+      } catch (error) {
+        console.error('[UnifiedAIProcessor] Gemini failed, falling back', error);
       }
-    } catch (error) {
-      console.error(`Primary engine failed, using enhanced fallback:`, error);
-      return await fallbackProcessor.processDocument(fileBuffer, mimeType, filename);
     }
+
+    // 2️⃣ Fallback SIEMPRE como respaldo real
+    return await fallbackProcessor.processDocument(
+      fileBuffer,
+      mimeType,
+      filename
+    );
   }
 }
 

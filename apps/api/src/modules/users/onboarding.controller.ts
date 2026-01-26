@@ -218,11 +218,21 @@ export const deleteCustomField = async (req: AuthRequest, res: Response) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
+    // Verificar que el campo exista y pertenezca al usuario
+    const field = await prisma.customField.findUnique({
+      where: { id },
+    });
+
+    if (!field) {
+      return res.status(404).json({ error: 'Custom field not found' });
+    }
+
+    if (field.userId !== req.user.userId) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     await prisma.customField.delete({
-      where: {
-        id,
-        userId: req.user.userId // Asegurar que solo pueda eliminar sus propios campos
-      },
+      where: { id },
     });
 
     res.json({

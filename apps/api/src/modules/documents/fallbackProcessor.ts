@@ -1,4 +1,4 @@
-//apps\api\src\modules\documents\fallbackProcessor.ts
+//apps/api/src/modules/documents/fallbackProcessor.ts
 interface ExtractionResult {
   extractedData: Record<string, any>;
   confidence: number;

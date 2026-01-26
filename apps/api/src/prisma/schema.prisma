@@ -7,7 +7,140 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ENUMS
+model User {
+  id             String                @id @default(cuid())
+  email          String                @unique
+  password       String
+  name           String?
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  organizationId String
+  subscriptions  BillingSubscription[]
+  customFields   CustomField[]
+  documents      Document[]
+  templates      ExtractionTemplate[]
+  preferences    UserPreferences?
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([email])
+  @@index([organizationId])
+  @@map("users")
+}
+
+model Organization {
+  id        String               @id @default(cuid())
+  name      String
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+  documents Document[]
+  templates ExtractionTemplate[]
+  users     User[]
+
+  @@map("organizations")
+}
+
+model Document {
+  id             String              @id @default(cuid())
+  filename       String
+  fileUrl        String
+  fileSize       Int
+  fileType       String
+  documentType   DocumentType
+  status         DocumentStatus      @default(PENDING)
+  uploadedAt     DateTime            @default(now())
+  processedAt    DateTime?
+  organizationId String
+  userId         String
+  processing     DocumentProcessing?
+  user           User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([userId])
+  @@index([status])
+  @@index([uploadedAt])
+  @@map("documents")
+}
+
+model DocumentProcessing {
+  id               String    @id @default(cuid())
+  documentId       String    @unique
+  extractedData    String?
+  confidence       Float?
+  processingEngine String?   @default("unknown")
+  startedAt        DateTime?
+  completedAt      DateTime?
+  error            String?
+  document         Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@map("document_processings")
+}
+
+model ExtractionTemplate {
+  id             String       @id @default(cuid())
+  name           String
+  description    String?
+  fields         String
+  sampleData     String?
+  organizationId String
+  userId         String?
+  isDefault      Boolean      @default(false)
+  category       String       @default("general")
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  user           User?        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([category])
+  @@map("extraction_templates")
+}
+
+model BillingSubscription {
+  id                   String      @id @default(cuid())
+  userId               String
+  plan                 BillingPlan @default(FREE)
+  stripeSubscriptionId String?     @unique
+  stripeCustomerId     String?     @unique
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelAtPeriodEnd    Boolean     @default(false)
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+  user                 User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([stripeSubscriptionId])
+  @@index([stripeCustomerId])
+  @@map("billing_subscriptions")
+}
+
+model UserPreferences {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  useCase      UseCase  @default(CONTRACT_CERTIFICATION)
+  customFields String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_preferences")
+}
+
+model CustomField {
+  id          String    @id @default(cuid())
+  name        String
+  type        FieldType
+  description String?
+  userId      String
+  createdAt   DateTime  @default(now())
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, name])
+  @@map("custom_fields")
+}
+
 enum DocumentType {
   INVOICE
   RECEIPT
@@ -43,155 +176,4 @@ enum UseCase {
   INVOICE_PROCESSING
   LEGAL_DOCUMENTS
   CUSTOM
-}
-
-// MODELOS
-model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
-  password  String
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  documents     Document[]
-  subscriptions BillingSubscription[]
-  preferences   UserPreferences?
-  customFields  CustomField[]
-  templates     ExtractionTemplate[]
-
-  @@index([email])
-  @@index([organizationId])
-  @@map("users")
-}
-
-model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  users     User[]
-  documents Document[]
-  templates ExtractionTemplate[]
-
-  @@map("organizations")
-}
-
-model Document {
-  id           String         @id @default(cuid())
-  filename     String
-  fileUrl      String
-  fileSize     Int
-  fileType     String
-  documentType DocumentType
-  status       DocumentStatus @default(PENDING)
-  uploadedAt   DateTime       @default(now())
-  processedAt  DateTime?
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  processing DocumentProcessing?
-
-  @@index([organizationId])
-  @@index([userId])
-  @@index([status])
-  @@index([uploadedAt])
-  @@map("documents")
-}
-
-model DocumentProcessing {
-  id         String   @id @default(cuid())
-  documentId String   @unique
-  document   Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-
-  extractedData    String?
-  confidence       Float?
-  processingEngine String? @default("unknown")
-
-  startedAt   DateTime?
-  completedAt DateTime?
-  error       String?
-
-  @@index([documentId])
-  @@map("document_processings")
-}
-
-model ExtractionTemplate {
-  id          String  @id @default(cuid())
-  name        String
-  description String?
-  fields      String
-  sampleData  String?
-
-  organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  userId    String?
-  user      User?   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  isDefault Boolean @default(false)
-  category  String  @default("general")
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([category])
-  @@map("extraction_templates")
-}
-
-model BillingSubscription {
-  id     String @id @default(cuid())
-  userId String
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  plan                 BillingPlan @default(FREE)
-  stripeSubscriptionId String?     @unique
-  stripeCustomerId     String?     @unique
-  currentPeriodStart   DateTime?
-  currentPeriodEnd     DateTime?
-  cancelAtPeriodEnd    Boolean     @default(false)
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId])
-  @@index([stripeSubscriptionId])
-  @@index([stripeCustomerId])
-  @@map("billing_subscriptions")
-}
-
-model UserPreferences {
-  id     String @id @default(cuid())
-  userId String @unique
-  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  useCase      UseCase @default(CONTRACT_CERTIFICATION)
-  customFields String?
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@map("user_preferences")
-}
-
-model CustomField {
-  id          String    @id @default(cuid())
-  name        String
-  type        FieldType
-  description String?
-  userId      String
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  createdAt DateTime @default(now())
-
-  @@unique([userId, name])
-  @@map("custom_fields")
 }
